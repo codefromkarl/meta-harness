@@ -247,3 +247,57 @@ def test_run_execute_resolves_nested_effective_config_templates(tmp_path: Path) 
     assert (
         run_dir / "tasks" / "task-nested" / "inspect_template.stdout.txt"
     ).read_text(encoding="utf-8").strip() == "project=project-123"
+
+
+def test_run_execute_can_skip_scoring_via_cli_flag(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "run-no-score"
+    (run_dir / "tasks").mkdir(parents=True)
+    (run_dir / "artifacts").mkdir(parents=True)
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run-no-score", "profile": "base", "project": "demo"},
+    )
+    write_json(
+        run_dir / "effective_config.json",
+        {"evaluation": {"evaluators": ["basic"]}},
+    )
+
+    task_set = tmp_path / "task_set_no_score.json"
+    write_json(
+        task_set,
+        {
+            "tasks": [
+                {
+                    "task_id": "task-a",
+                    "workdir": str(tmp_path),
+                    "phases": [
+                        {
+                            "phase": "prepare",
+                            "command": ["python", "-c", "print('prepare-ok')"],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "execute",
+            "--run-id",
+            "run-no-score",
+            "--task-set",
+            str(task_set),
+            "--runs-root",
+            str(runs_root),
+            "--no-score",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "1/1"
+    assert not (run_dir / "score_report.json").exists()

@@ -160,8 +160,15 @@ def run_execute(
         ..., exists=False, dir_okay=False, help="Task set JSON file"
     ),
     runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
+    no_score: bool = typer.Option(
+        False,
+        "--no-score",
+        help="Execute task set without writing score_report.json",
+    ),
 ) -> None:
     summary = execute_task_set(runs_root / run_id, task_set)
+    if not no_score:
+        score_run(runs_root / run_id)
     typer.echo(f"{summary['succeeded']}/{summary['total']}")
 
 
