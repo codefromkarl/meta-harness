@@ -87,6 +87,7 @@ class StrategyCard(BaseModel):
 
 
 class DatasetCase(BaseModel):
+    source_type: str = "failure_signature"
     run_id: str
     profile: str
     project: str
@@ -95,6 +96,11 @@ class DatasetCase(BaseModel):
     step_id: str | None = None
     raw_error: str
     failure_signature: str
+    scenario: str | None = None
+    difficulty: str | None = None
+    weight: float | None = None
+    expectations: dict[str, Any] | None = None
+    phase_names: list[str] | None = None
 
 
 class DatasetVersion(BaseModel):

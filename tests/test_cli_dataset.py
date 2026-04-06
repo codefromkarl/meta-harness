@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from meta_harness.cli import app
+from meta_harness.datasets import build_dataset_from_task_set
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -61,3 +62,45 @@ def test_dataset_extract_failures_writes_dataset_json(tmp_path: Path) -> None:
     assert payload["cases"][0]["run_id"] == "run123"
     assert payload["cases"][0]["task_id"] == "task-a"
     assert payload["cases"][0]["failure_signature"] == "trait bound foo clone is not satisfied"
+
+
+def test_build_dataset_from_task_set_preserves_task_metadata(tmp_path: Path) -> None:
+    task_set_path = tmp_path / "task_set.json"
+    write_json(
+        task_set_path,
+        {
+            "tasks": [
+                {
+                    "task_id": "task-a",
+                    "scenario": "cross_file_dependency_trace",
+                    "difficulty": "hard",
+                    "weight": 1.5,
+                    "expectations": {"must_pass": ["build", "tests"]},
+                    "workdir": "/tmp/workspace",
+                    "phases": [
+                        {"phase": "prepare", "command": ["python", "-c", "print('ok')"]},
+                        {"phase": "review", "command": ["python", "-c", "print('done')"]},
+                    ],
+                }
+            ]
+        },
+    )
+
+    payload = build_dataset_from_task_set(
+        task_set_path,
+        dataset_id="benchmark-cases",
+        version="v2",
+    )
+
+    assert payload["dataset_id"] == "benchmark-cases"
+    assert payload["version"] == "v2"
+    assert payload["schema_version"] == "2026-04-06"
+    assert payload["case_count"] == 1
+    case = payload["cases"][0]
+    assert case["source_type"] == "task_set"
+    assert case["task_id"] == "task-a"
+    assert case["scenario"] == "cross_file_dependency_trace"
+    assert case["difficulty"] == "hard"
+    assert case["weight"] == 1.5
+    assert case["expectations"] == {"must_pass": ["build", "tests"]}
+    assert case["phase_names"] == ["prepare", "review"]

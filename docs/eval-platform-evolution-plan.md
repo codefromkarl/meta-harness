@@ -191,7 +191,7 @@
 
 - 已新增 `DatasetCase` / `DatasetVersion` schema
 - failure dataset 已按正式 schema 输出
-- `task_set -> dataset case` 的通用兼容层仍待补
+- 已新增 `task_set -> dataset case` 基础兼容层
 
 ### Phase 4: CI Gate
 
