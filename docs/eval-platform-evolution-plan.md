@@ -173,7 +173,7 @@
 - 已支持 `run score --evaluator ...`
 - 已支持输出 `runs/<run_id>/evaluators/<name>.json`
 - `execute_managed_run(..., score_enabled=False)` 已落地
-- `run execute --no-score` CLI 仍待补
+- 已支持 `run execute --no-score`
 
 ### Phase 3: Dataset 化
 
@@ -186,6 +186,12 @@
 - `datasets/` 目录结构
 - `DatasetVersion` schema
 - `task_set -> dataset case` 的兼容层
+
+当前状态：
+
+- 已新增 `DatasetCase` / `DatasetVersion` schema
+- failure dataset 已按正式 schema 输出
+- `task_set -> dataset case` 的通用兼容层仍待补
 
 ### Phase 4: CI Gate
 
@@ -235,6 +241,13 @@
 - 本地文件仍为真相源
 - 外部平台为镜像与分析层，而非唯一存储
 
+当前状态：
+
+- 已支持 `otel-json`
+- 已支持 `phoenix-json` adapter skeleton
+- 已支持 `langfuse-json` adapter skeleton
+- 尚未接入真实 SDK / API transport
+
 ### Phase 7: Dataset 飞轮
 
 目标：
@@ -250,6 +263,7 @@
 当前状态：
 
 - 已支持从 failed runs 提取基础 dataset JSON
+- failure dataset 已切换到正式 schema 输出
 - 已新增 `dataset extract-failures` CLI
 - annotation ingestion 与 dataset promotion 仍待补
 

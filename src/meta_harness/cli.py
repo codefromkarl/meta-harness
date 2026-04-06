@@ -17,6 +17,8 @@ from meta_harness.catalog import (
     build_run_index,
     candidate_archive_view,
     candidate_current_view,
+    prune_candidates,
+    prune_runs,
     run_archive_view,
     run_current_view,
 )
@@ -216,6 +218,31 @@ def run_archive_list(
     candidates_root: Path | None = typer.Option(None, exists=False, file_okay=False),
 ) -> None:
     typer.echo(json.dumps(run_archive_view(runs_root, candidates_root=candidates_root)))
+
+
+@run_app.command("archive")
+def run_archive(
+    runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
+    candidates_root: Path | None = typer.Option(None, exists=False, file_okay=False),
+    archive_root: Path = typer.Option(Path("archive"), exists=False, file_okay=False),
+) -> None:
+    typer.echo(
+        json.dumps(
+            archive_runs(
+                runs_root,
+                archive_root=archive_root,
+                candidates_root=candidates_root,
+            )
+        )
+    )
+
+
+@run_app.command("prune")
+def run_prune(
+    runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
+    candidates_root: Path | None = typer.Option(None, exists=False, file_okay=False),
+) -> None:
+    typer.echo(json.dumps(prune_runs(runs_root, candidates_root=candidates_root)))
 
 
 @run_app.command("diff")

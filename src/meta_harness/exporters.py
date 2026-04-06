@@ -68,3 +68,49 @@ def export_run_trace_otel_json(run_dir: Path) -> dict[str, Any]:
         },
         "spans": spans,
     }
+
+
+def export_run_trace_phoenix_json(run_dir: Path) -> dict[str, Any]:
+    otel_payload = export_run_trace_otel_json(run_dir)
+    resource = otel_payload.get("resource", {}).get("attributes", {})
+    return {
+        "project_name": f"meta-harness/{resource.get('meta_harness.project', 'unknown')}",
+        "traces": [
+            {
+                "trace_id": otel_payload["run_id"],
+                "spans": otel_payload["spans"],
+            }
+        ],
+    }
+
+
+def export_run_trace_langfuse_json(run_dir: Path) -> dict[str, Any]:
+    otel_payload = export_run_trace_otel_json(run_dir)
+    resource = otel_payload.get("resource", {}).get("attributes", {})
+    observations = []
+    for span in otel_payload["spans"]:
+        observations.append(
+            {
+                "id": span["span_id"],
+                "trace_id": span["trace_id"],
+                "name": span["name"],
+                "start_time": span["start_time"],
+                "duration_ms": span["duration_ms"],
+                "metadata": {
+                    "tool_name": span["attributes"].get("tool.name"),
+                    "task_id": span["attributes"].get("meta_harness.task_id"),
+                    "candidate_id": span["attributes"].get(
+                        "meta_harness.candidate_id"
+                    ),
+                    "status": span["attributes"].get("meta_harness.status"),
+                },
+            }
+        )
+    return {
+        "trace": {
+            "id": otel_payload["run_id"],
+            "name": f"meta-harness:{resource.get('meta_harness.project', 'unknown')}",
+            "metadata": resource,
+        },
+        "observations": observations,
+    }
