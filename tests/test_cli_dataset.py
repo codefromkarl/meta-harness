@@ -57,6 +57,7 @@ def test_dataset_extract_failures_writes_dataset_json(tmp_path: Path) -> None:
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["dataset_id"] == "failure-signatures"
     assert payload["case_count"] == 1
+    assert payload["schema_version"] == "2026-04-06"
     assert payload["cases"][0]["run_id"] == "run123"
     assert payload["cases"][0]["task_id"] == "task-a"
     assert payload["cases"][0]["failure_signature"] == "trait bound foo clone is not satisfied"

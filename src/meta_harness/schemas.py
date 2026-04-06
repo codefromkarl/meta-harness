@@ -84,3 +84,22 @@ class StrategyCard(BaseModel):
     expected_signals: dict[str, Any] | None = None
     risk_notes: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+
+class DatasetCase(BaseModel):
+    run_id: str
+    profile: str
+    project: str
+    task_id: str
+    phase: str
+    step_id: str | None = None
+    raw_error: str
+    failure_signature: str
+
+
+class DatasetVersion(BaseModel):
+    dataset_id: str
+    version: str
+    schema_version: str
+    case_count: int
+    cases: list[DatasetCase]
