@@ -1,0 +1,45 @@
+{
+  "experiment": "contextatlas_indexing_sweep",
+  "baseline": "baseline",
+  "variants": [
+    {
+      "name": "baseline"
+    },
+    {
+      "name": "topk_12_rerank_24",
+      "config_patch": {
+        "retrieval": {
+          "top_k": 12,
+          "rerank_k": 24
+        }
+      }
+    },
+    {
+      "name": "topk_16_rerank_32",
+      "config_patch": {
+        "retrieval": {
+          "top_k": 16,
+          "rerank_k": 32
+        }
+      }
+    },
+    {
+      "name": "chunk_800_overlap_120",
+      "config_patch": {
+        "indexing": {
+          "chunk_size": 800,
+          "chunk_overlap": 120
+        }
+      }
+    },
+    {
+      "name": "chunk_1200_overlap_160",
+      "config_patch": {
+        "indexing": {
+          "chunk_size": 1200,
+          "chunk_overlap": 160
+        }
+      }
+    }
+  ]
+}

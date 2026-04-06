@@ -1,0 +1,13 @@
+{
+  "description": "Base reusable workflow profile",
+  "defaults": {
+    "evaluation": {
+      "evaluators": [
+        "basic"
+      ]
+    },
+    "tools": [
+      "rg"
+    ]
+  }
+}

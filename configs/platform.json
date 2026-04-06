@@ -1,0 +1,10 @@
+{
+  "budget": {
+    "max_turns": 12,
+    "max_tokens": 120000
+  },
+  "retrieval": {
+    "top_k": 8,
+    "chunk_size": 1000
+  }
+}

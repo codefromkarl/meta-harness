@@ -1,0 +1,17 @@
+{
+  "description": "ContextAtlas benchmark workflow for retrieval and memory A/B experiments",
+  "defaults": {
+    "evaluation": {
+      "evaluators": [
+        "basic",
+        "command"
+      ]
+    },
+    "tools": [
+      "git",
+      "node",
+      "pnpm",
+      "python"
+    ]
+  }
+}

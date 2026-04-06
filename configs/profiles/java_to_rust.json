@@ -1,0 +1,19 @@
+{
+  "description": "Java to Rust migration workflow profile",
+  "defaults": {
+    "evaluation": {
+      "evaluators": [
+        "basic"
+      ]
+    },
+    "tools": [
+      "rg",
+      "cargo",
+      "clippy"
+    ],
+    "retrieval": {
+      "top_k": 12,
+      "chunk_size": 1200
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "strategy_id": "indexing/freshness-guard-external",
+  "title": "Freshness Guard External",
+  "source": "reference://external/freshness-guard",
+  "category": "indexing",
+  "group": "freshness",
+  "priority": 10,
+  "change_type": "config_only",
+  "hypothesis": "Freshness guard should improve stale-index recovery without requiring a full method rewrite.",
+  "config_patch": {
+    "indexing": {
+      "chunk_size": 1200,
+      "chunk_overlap": 160,
+      "update_mode": "incremental",
+      "freshness_guard": true
+    },
+    "optimization": {
+      "focus": "indexing",
+      "indexing_strategy_hint": "freshness_guard_external"
+    }
+  },
+  "expected_signals": {
+    "probes": {
+      "indexing.index_freshness_ratio": {
+        "min": 0.9
+      }
+    }
+  },
+  "expected_benefits": [
+    "better stale-index recovery"
+  ],
+  "expected_costs": [
+    "slightly higher indexing cost than compact chunking"
+  ],
+  "risk_notes": [
+    "freshness guard behavior still depends on current ContextAtlas implementation"
+  ],
+  "tags": [
+    "freshness-guard",
+    "config-only"
+  ]
+}

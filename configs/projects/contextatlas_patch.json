@@ -1,0 +1,107 @@
+{
+  "workflow": "contextatlas_patch_repair",
+  "overrides": {
+    "runtime": {
+      "workspace": {
+        "source_repo": "${contextatlas.repo_path}"
+      }
+    },
+    "optimization": {
+      "history_sources": [
+        {
+          "profile": "contextatlas_maintenance",
+          "project": "contextatlas"
+        },
+        {
+          "profile": "contextatlas_patch_repair",
+          "project": "contextatlas_patch"
+        }
+      ],
+      "proposal_command": [
+        "python",
+        "/home/yuanzhi/Develop/tools/meta-harness/scripts/contextatlas_patch_proposal.py"
+      ],
+      "headroom_defaults": {
+        "indexing": {
+          "retrieval": {
+            "chunk_size": 1200,
+            "chunk_overlap": 160
+          },
+          "signals": [
+            "snapshot_ready",
+            "vector_index_ready",
+            "db_integrity_ok"
+          ],
+          "checks": [
+            "snapshot_health",
+            "vector_index_health",
+            "db_integrity"
+          ]
+        },
+        "memory": {
+          "budget": {
+            "max_turns": 14,
+            "max_retries": 2
+          },
+          "signals": [
+            "memory_completeness",
+            "memory_freshness",
+            "memory_stale_ratio"
+          ],
+          "checks": [
+            "profile_import",
+            "memory_consistency",
+            "catalog_freshness"
+          ]
+        },
+        "retrieval": {
+          "retrieval": {
+            "top_k": 12,
+            "rerank_k": 24
+          },
+          "signals": [
+            "retrieval_hit_rate",
+            "retrieval_mrr",
+            "grounded_answer_rate"
+          ],
+          "checks": [
+            "topk_sweep",
+            "rerank_eval",
+            "query_quality_eval"
+          ]
+        }
+      },
+      "headroom_thresholds": {
+        "indexing": {
+          "vector_coverage_ratio": 0.9,
+          "index_freshness_ratio": 0.85
+        },
+        "memory": {
+          "memory_completeness": 0.8,
+          "memory_freshness": 0.85,
+          "memory_stale_ratio": 0.1
+        },
+        "retrieval": {
+          "retrieval_hit_rate": 0.7,
+          "retrieval_mrr": 0.5,
+          "grounded_answer_rate": 0.8
+        }
+      }
+    },
+    "contextatlas": {
+      "repo_path": "/home/yuanzhi/Develop/tools/ContextAtlas",
+      "project_id": "544e07d643"
+    },
+    "evaluation": {
+      "command_evaluators": [
+        {
+          "name": "contextatlas-patch",
+          "command": [
+            "python",
+            "/home/yuanzhi/Develop/tools/meta-harness/scripts/contextatlas_patch_eval.py"
+          ]
+        }
+      ]
+    }
+  }
+}

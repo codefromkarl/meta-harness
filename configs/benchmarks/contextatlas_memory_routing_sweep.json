@@ -1,0 +1,55 @@
+{
+  "experiment": "contextatlas_memory_routing_sweep",
+  "baseline": "baseline",
+  "variants": [
+    {
+      "name": "baseline"
+    },
+    {
+      "name": "memory_lightweight",
+      "config_patch": {
+        "contextatlas": {
+          "memory": {
+            "routing_mode": "lightweight",
+            "freshness_bias": 0.4,
+            "stale_prune_threshold": 0.2
+          }
+        }
+      }
+    },
+    {
+      "name": "memory_freshness_bias",
+      "config_patch": {
+        "contextatlas": {
+          "memory": {
+            "routing_mode": "freshness-biased",
+            "freshness_bias": 0.8,
+            "stale_prune_threshold": 0.12
+          }
+        }
+      }
+    },
+    {
+      "name": "memory_strict_pruning",
+      "config_patch": {
+        "contextatlas": {
+          "memory": {
+            "routing_mode": "strict-pruning",
+            "freshness_bias": 0.6,
+            "stale_prune_threshold": 0.08
+          }
+        }
+      }
+    },
+    {
+      "name": "memory_off",
+      "config_patch": {
+        "contextatlas": {
+          "memory": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  ]
+}

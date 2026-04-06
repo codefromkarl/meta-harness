@@ -1,0 +1,586 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from meta_harness.cli import app
+
+
+def write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def make_run(
+    runs_root: Path,
+    run_id: str,
+    *,
+    profile: str = "base",
+    project: str = "demo",
+    candidate_id: str | None = None,
+    composite: float | None = None,
+    success: bool | None = None,
+) -> None:
+    run_dir = runs_root / run_id
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    write_json(
+        run_dir / "run_metadata.json",
+        {
+            "run_id": run_id,
+            "profile": profile,
+            "project": project,
+            "candidate_id": candidate_id,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    write_json(
+        run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}}
+    )
+    if composite is not None:
+        write_json(
+            run_dir / "score_report.json",
+            {
+                "correctness": {"task_count": 1, "completed_steps": 2},
+                "cost": {"trace_event_count": 2},
+                "maintainability": {},
+                "architecture": {},
+                "human_collaboration": {"manual_interventions": 0},
+                "composite": composite,
+            },
+        )
+    if success is not None:
+        write_json(
+            task_dir / "task_result.json",
+            {
+                "task_id": "task-a",
+                "success": success,
+                "completed_phases": 2 if success else 1,
+                "failed_phase": None if success else "build",
+            },
+        )
+
+
+def make_candidate(
+    candidates_root: Path,
+    candidate_id: str,
+    *,
+    profile: str = "base",
+    project: str = "demo",
+    notes: str = "",
+    proposal: dict | None = None,
+) -> None:
+    candidate_dir = candidates_root / candidate_id
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    write_json(
+        candidate_dir / "candidate.json",
+        {
+            "candidate_id": candidate_id,
+            "profile": profile,
+            "project": project,
+            "notes": notes,
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+        },
+    )
+    write_json(candidate_dir / "effective_config.json", {"budget": {"max_turns": 12}})
+    if proposal is not None:
+        write_json(candidate_dir / "proposal.json", proposal)
+
+
+def test_run_catalog_enriches_benchmark_experiment_and_latest_valid_views(
+    tmp_path: Path,
+) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_stability_penalty_calibration",
+            "variant": "penalty_default",
+            "variant_type": "parameter",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_stability_penalty_calibration",
+            "variant": "penalty_balanced",
+            "variant_type": "parameter",
+        },
+    )
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=2.0, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+    write_json(
+        runs_root / "run-old" / "run_metadata.json",
+        {
+            "run_id": "run-old",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-old",
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        runs_root / "run-new" / "run_metadata.json",
+        {
+            "run_id": "run-new",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-new",
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "index",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    by_id = {item["run_id"]: item for item in payload["runs"]}
+    assert (
+        by_id["run-old"]["experiment"] == "contextatlas_stability_penalty_calibration"
+    )
+    assert by_id["run-old"]["benchmark_family"] == "stability_penalty_calibration"
+    assert by_id["run-old"]["variant"] == "penalty_default"
+    assert payload["latest_valid_by_experiment"] == {
+        "contextatlas_stability_penalty_calibration": "run-new"
+    }
+
+
+def test_candidate_catalog_enriches_benchmark_family_and_latest_champion_views(
+    tmp_path: Path,
+) -> None:
+    candidates_root = tmp_path / "candidates"
+    make_candidate(
+        candidates_root,
+        "cand-a",
+        notes="benchmark variant",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+            "variant_type": "parameter",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-b",
+        notes="benchmark variant",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_stability_penalty_calibration",
+            "variant": "penalty_balanced",
+            "variant_type": "parameter",
+        },
+    )
+    write_json(candidates_root / "champions.json", {"base:demo": "cand-b"})
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["candidate", "index", "--candidates-root", str(candidates_root)],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    by_id = {item["candidate_id"]: item for item in payload["candidates"]}
+    assert by_id["cand-a"]["experiment"] == "contextatlas_combo_validation"
+    assert by_id["cand-a"]["benchmark_family"] == "combo_validation"
+    assert by_id["cand-a"]["variant"] == "retrieval_wide_only"
+    assert payload["latest_champion_by_project"] == {"base:demo": "cand-b"}
+
+
+def test_catalog_marks_superseded_candidates_and_links_runs(
+    tmp_path: Path,
+) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+            "variant_type": "parameter",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+            "variant_type": "parameter",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older benchmark variant",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer benchmark variant",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=2.0, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+    write_json(
+        runs_root / "run-old" / "run_metadata.json",
+        {
+            "run_id": "run-old",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-old",
+            "created_at": "2026-04-06T09:30:00Z",
+        },
+    )
+    write_json(
+        runs_root / "run-new" / "run_metadata.json",
+        {
+            "run_id": "run-new",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-new",
+            "created_at": "2026-04-06T10:30:00Z",
+        },
+    )
+
+    runner = CliRunner()
+    run_result = runner.invoke(
+        app,
+        [
+            "run",
+            "index",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+    candidate_result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "index",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+        ],
+    )
+
+    assert run_result.exit_code == 0
+    assert candidate_result.exit_code == 0
+    run_payload = json.loads(run_result.stdout)
+    candidate_payload = json.loads(candidate_result.stdout)
+    run_by_id = {item["run_id"]: item for item in run_payload["runs"]}
+    candidate_by_id = {
+        item["candidate_id"]: item for item in candidate_payload["candidates"]
+    }
+
+    assert run_by_id["run-old"]["status"] == "superseded"
+    assert run_by_id["run-old"]["superseded_by_run_id"] == "run-new"
+    assert run_payload["current_recommended_run_by_experiment"] == {
+        "contextatlas_combo_validation": "run-new"
+    }
+    assert candidate_by_id["cand-old"]["status"] == "superseded"
+    assert candidate_by_id["cand-old"]["superseded_by_candidate_id"] == "cand-new"
+    assert candidate_by_id["cand-old"]["run_ids"] == ["run-old"]
+    assert candidate_by_id["cand-new"]["run_ids"] == ["run-new"]
+    assert candidate_payload["current_recommended_candidate_by_experiment"] == {
+        "contextatlas_combo_validation": "cand-new"
+    }
+
+
+def test_run_current_and_archive_list_views(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=2.0, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+    make_run(runs_root, "run-failed", candidate_id=None, composite=None, success=False)
+    write_json(
+        runs_root / "run-old" / "run_metadata.json",
+        {
+            "run_id": "run-old",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-old",
+            "created_at": "2026-04-06T09:30:00Z",
+        },
+    )
+    write_json(
+        runs_root / "run-new" / "run_metadata.json",
+        {
+            "run_id": "run-new",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-new",
+            "created_at": "2026-04-06T10:30:00Z",
+        },
+    )
+
+    runner = CliRunner()
+    current_result = runner.invoke(
+        app,
+        [
+            "run",
+            "current",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+    archive_result = runner.invoke(
+        app,
+        [
+            "run",
+            "archive-list",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+
+    assert current_result.exit_code == 0
+    assert archive_result.exit_code == 0
+    current_payload = json.loads(current_result.stdout)
+    archive_payload = json.loads(archive_result.stdout)
+    assert current_payload == {
+        "current_recommended_run_by_experiment": {
+            "contextatlas_combo_validation": "run-new"
+        }
+    }
+    assert archive_payload["superseded_runs"] == ["run-old"]
+    assert archive_payload["failed_runs"] == ["run-failed"]
+
+
+def test_candidate_current_and_archive_list_views(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+
+    runner = CliRunner()
+    current_result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "current",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+        ],
+    )
+    archive_result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "archive-list",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+        ],
+    )
+
+    assert current_result.exit_code == 0
+    assert archive_result.exit_code == 0
+    current_payload = json.loads(current_result.stdout)
+    archive_payload = json.loads(archive_result.stdout)
+    assert current_payload == {
+        "current_recommended_candidate_by_experiment": {
+            "contextatlas_combo_validation": "cand-new"
+        }
+    }
+    assert archive_payload["superseded_candidates"] == ["cand-old"]
+
+
+def test_run_catalog_builds_classified_index(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    make_run(runs_root, "run-valid", composite=2.5, success=True)
+    make_run(runs_root, "run-failed", composite=None, success=False)
+    make_run(runs_root, "run-partial", composite=1.0, success=False)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["run", "index", "--runs-root", str(runs_root)],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["summary"] == {
+        "total_runs": 3,
+        "valid_runs": 1,
+        "failed_runs": 1,
+        "partial_runs": 1,
+    }
+    by_id = {item["run_id"]: item for item in payload["runs"]}
+    assert by_id["run-valid"]["status"] == "valid"
+    assert by_id["run-valid"]["tags"] == ["scored", "successful"]
+    assert by_id["run-failed"]["status"] == "failed"
+    assert by_id["run-partial"]["status"] == "partial"
+    index_payload = json.loads((runs_root / "_index.json").read_text(encoding="utf-8"))
+    assert index_payload["summary"]["valid_runs"] == 1
+
+
+def test_candidate_catalog_builds_classified_index(tmp_path: Path) -> None:
+    candidates_root = tmp_path / "candidates"
+    make_candidate(
+        candidates_root,
+        "cand-a",
+        notes="benchmark variant",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "demo",
+            "variant": "wide",
+        },
+    )
+    make_candidate(candidates_root, "cand-b", notes="manual exploration")
+    write_json(candidates_root / "champions.json", {"base:demo": "cand-a"})
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["candidate", "index", "--candidates-root", str(candidates_root)],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["summary"] == {
+        "total_candidates": 2,
+        "champion_candidates": 1,
+        "benchmark_candidates": 1,
+    }
+    by_id = {item["candidate_id"]: item for item in payload["candidates"]}
+    assert by_id["cand-a"]["status"] == "champion"
+    assert by_id["cand-a"]["tags"] == ["benchmark", "champion"]
+    assert by_id["cand-b"]["status"] == "exploratory"
+    index_payload = json.loads(
+        (candidates_root / "_index.json").read_text(encoding="utf-8")
+    )
+    assert index_payload["summary"]["champion_candidates"] == 1

@@ -1,0 +1,34 @@
+{
+  "strategy_id": "indexing/dense-chunking-external",
+  "title": "Dense Chunking External",
+  "source": "reference://external/dense-chunking",
+  "category": "indexing",
+  "group": "chunking",
+  "priority": 20,
+  "change_type": "config_only",
+  "hypothesis": "Denser chunking can improve freshness-sensitive retrieval quality with moderate index size growth.",
+  "config_patch": {
+    "indexing": {
+      "chunk_size": 1200,
+      "chunk_overlap": 160
+    }
+  },
+  "expected_signals": {
+    "fingerprints": {
+      "indexing.chunk_profile": "1200/160"
+    }
+  },
+  "expected_benefits": [
+    "higher freshness-sensitive retrieval quality"
+  ],
+  "expected_costs": [
+    "larger index size"
+  ],
+  "risk_notes": [
+    "may increase indexing latency on large repositories"
+  ],
+  "tags": [
+    "dense-chunking",
+    "config-only"
+  ]
+}

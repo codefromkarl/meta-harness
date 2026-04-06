@@ -1,0 +1,16 @@
+{
+  "description": "ContextAtlas index and memory maintenance workflow",
+  "defaults": {
+    "evaluation": {
+      "evaluators": [
+        "basic",
+        "command"
+      ]
+    },
+    "tools": [
+      "node",
+      "pnpm",
+      "python"
+    ]
+  }
+}

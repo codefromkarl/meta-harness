@@ -1,0 +1,42 @@
+{
+  "workflow": "contextatlas_benchmark",
+  "overrides": {
+    "runtime": {
+      "workspace": {
+        "source_repo": "${contextatlas.repo_path}"
+      }
+    },
+    "retrieval": {
+      "top_k": 16,
+      "rerank_k": 32
+    },
+    "indexing": {
+      "chunk_size": 1000,
+      "chunk_overlap": 40
+    },
+    "contextatlas": {
+      "repo_path": "/home/yuanzhi/Develop/tools/ContextAtlas",
+      "project_id": "544e07d643",
+      "memory": {
+        "enabled": true,
+        "routing_mode": "baseline"
+      },
+      "benchmark": {
+        "config_name": "contextatlas_current_best_known_v1",
+        "baseline_alias": "retrieval_wide + topk_16_rerank_32 + memory_baseline",
+        "rollback_project": "contextatlas_benchmark"
+      }
+    },
+    "evaluation": {
+      "command_evaluators": [
+        {
+          "name": "contextatlas-health",
+          "command": [
+            "python",
+            "/home/yuanzhi/Develop/tools/meta-harness/scripts/contextatlas_run_eval.py"
+          ]
+        }
+      ]
+    }
+  }
+}

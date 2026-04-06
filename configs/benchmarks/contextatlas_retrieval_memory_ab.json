@@ -1,0 +1,37 @@
+{
+  "experiment": "contextatlas_retrieval_memory_ab",
+  "baseline": "baseline",
+  "variants": [
+    {
+      "name": "baseline"
+    },
+    {
+      "name": "retrieval_wide",
+      "config_patch": {
+        "retrieval": {
+          "top_k": 12,
+          "rerank_k": 24
+        }
+      }
+    },
+    {
+      "name": "dense_chunking",
+      "config_patch": {
+        "indexing": {
+          "chunk_size": 1200,
+          "chunk_overlap": 160
+        }
+      }
+    },
+    {
+      "name": "memory_off",
+      "config_patch": {
+        "contextatlas": {
+          "memory": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  ]
+}

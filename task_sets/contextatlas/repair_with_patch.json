@@ -1,0 +1,78 @@
+{
+  "tasks": [
+    {
+      "task_id": "contextatlas-patch-repair",
+      "workdir": "${workspace_dir}",
+      "phases": [
+        {
+          "phase": "install_dependencies",
+          "command": [
+            "pnpm",
+            "install",
+            "--frozen-lockfile"
+          ]
+        },
+        {
+          "phase": "register_project",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "hub:register-project",
+            "${workspace_dir}",
+            "--name",
+            "ContextAtlas"
+          ]
+        },
+        {
+          "phase": "import_profile",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "profile:import-omc"
+          ]
+        },
+        {
+          "phase": "build",
+          "command": [
+            "pnpm",
+            "build"
+          ]
+        },
+        {
+          "phase": "test_omc_import",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "--test",
+            "tests/omc-profile-import.test.ts"
+          ]
+        },
+        {
+          "phase": "show_profile",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "profile:show"
+          ]
+        },
+        {
+          "phase": "check_memory",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "memory:check-consistency"
+          ]
+        }
+      ]
+    }
+  ]
+}

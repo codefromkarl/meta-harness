@@ -1,0 +1,17 @@
+{
+  "description": "ContextAtlas candidate patch repair workflow",
+  "defaults": {
+    "evaluation": {
+      "evaluators": [
+        "basic",
+        "command"
+      ]
+    },
+    "tools": [
+      "git",
+      "node",
+      "pnpm",
+      "python"
+    ]
+  }
+}

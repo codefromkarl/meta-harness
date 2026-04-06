@@ -1,0 +1,26 @@
+{
+  "suite": "contextatlas_default_suite",
+  "benchmarks": [
+    {
+      "spec": "configs/benchmarks/contextatlas_retrieval_memory_ab.json"
+    },
+    {
+      "spec": "configs/benchmarks/contextatlas_indexing_sweep.json",
+      "focus": "indexing"
+    },
+    {
+      "spec": "configs/benchmarks/contextatlas_indexing_architecture_v2.json",
+      "focus": "indexing",
+      "task_set": "task_sets/contextatlas/benchmark_indexing_architecture_v2.json"
+    },
+    {
+      "spec": "configs/benchmarks/contextatlas_memory_routing_sweep.json",
+      "focus": "memory"
+    },
+    {
+      "spec": "configs/benchmarks/contextatlas_stability_penalty_calibration.json",
+      "focus": "retrieval",
+      "task_set": "task_sets/contextatlas/benchmark_stability_penalty_calibration.json"
+    }
+  ]
+}

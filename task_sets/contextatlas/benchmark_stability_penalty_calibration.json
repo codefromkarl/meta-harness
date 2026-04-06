@@ -1,0 +1,89 @@
+{
+  "tasks": [
+    {
+      "task_id": "contextatlas-stability-calibration",
+      "workdir": "${workspace_dir}",
+      "phases": [
+        {
+          "phase": "install_dependencies",
+          "command": [
+            "pnpm",
+            "install",
+            "--frozen-lockfile"
+          ]
+        },
+        {
+          "phase": "register_project",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "hub:register-project",
+            "${workspace_dir}",
+            "--name",
+            "ContextAtlas"
+          ]
+        },
+        {
+          "phase": "import_profile",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "profile:import-omc"
+          ]
+        },
+        {
+          "phase": "build",
+          "command": [
+            "pnpm",
+            "build"
+          ]
+        },
+        {
+          "phase": "index_workspace",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "src/index.ts",
+            "index",
+            "${workspace_dir}"
+          ]
+        },
+        {
+          "phase": "health_check",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "/home/yuanzhi/Develop/tools/meta-harness/scripts/contextatlas_health_check.ts",
+            "--project-id",
+            "${contextatlas.project_id}"
+          ]
+        },
+        {
+          "phase": "variance_probe",
+          "command": [
+            "python",
+            "-c",
+            "import json, os; from pathlib import Path; run = json.loads(Path(os.environ['META_HARNESS_RUN_DIR']).joinpath('run_metadata.json').read_text(encoding='utf-8')); parity = int(str(run['run_id'])[-1], 16) % 2; payload = {'fingerprints': {'calibration.run_parity': parity}, 'probes': {'calibration.synthetic_variance': 0.9 if parity == 0 else 0.2, 'calibration.instability_trigger': 1 if parity == 0 else 0}}; print(json.dumps(payload))"
+          ]
+        },
+        {
+          "phase": "benchmark_probe",
+          "command": [
+            "node",
+            "--import",
+            "tsx",
+            "/home/yuanzhi/Develop/tools/meta-harness/scripts/contextatlas_benchmark_probe.ts",
+            "--project-id",
+            "${contextatlas.project_id}"
+          ]
+        }
+      ]
+    }
+  ]
+}

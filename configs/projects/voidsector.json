@@ -1,0 +1,11 @@
+{
+  "workflow": "java_to_rust",
+  "overrides": {
+    "budget": {
+      "max_turns": 16
+    },
+    "style": {
+      "naming": "idiomatic-rust"
+    }
+  }
+}
