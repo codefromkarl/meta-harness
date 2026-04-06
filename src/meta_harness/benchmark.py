@@ -621,6 +621,40 @@ def _score_delta(
     return delta
 
 
+def _focus_tiebreak_bonus(
+    delta_from_baseline: dict[str, Any],
+    *,
+    focus: str | None,
+) -> float:
+    if focus == "indexing":
+        architecture = delta_from_baseline.get("architecture") or {}
+        if not isinstance(architecture, dict):
+            return 0.0
+        bonus = max(0.0, float(architecture.get("vector_coverage_ratio", 0.0)))
+        bonus += max(0.0, float(architecture.get("index_freshness_ratio", 0.0)))
+        return _round(bonus / 1000.0)
+
+    if focus == "memory":
+        maintainability = delta_from_baseline.get("maintainability") or {}
+        if not isinstance(maintainability, dict):
+            return 0.0
+        bonus = max(0.0, float(maintainability.get("memory_completeness", 0.0)))
+        bonus += max(0.0, float(maintainability.get("memory_freshness", 0.0)))
+        bonus += max(0.0, -float(maintainability.get("memory_stale_ratio", 0.0)))
+        return _round(bonus / 1000.0)
+
+    if focus == "retrieval":
+        retrieval = delta_from_baseline.get("retrieval") or {}
+        if not isinstance(retrieval, dict):
+            return 0.0
+        bonus = max(0.0, float(retrieval.get("retrieval_hit_rate", 0.0)))
+        bonus += max(0.0, float(retrieval.get("retrieval_mrr", 0.0)))
+        bonus += max(0.0, float(retrieval.get("grounded_answer_rate", 0.0)))
+        return _round(bonus / 1000.0)
+
+    return 0.0
+
+
 def run_benchmark(
     *,
     config_root: Path,
@@ -802,7 +836,12 @@ def run_benchmark(
                 policy=item.get("stability_policy") or stability_policy,
             )
         )
-        item["ranking_score"] = ranking_score
+        focus_tiebreak_bonus = _focus_tiebreak_bonus(
+            item["delta_from_baseline"],
+            focus=focus,
+        )
+        item["focus_tiebreak_bonus"] = focus_tiebreak_bonus
+        item["ranking_score"] = _round(ranking_score + focus_tiebreak_bonus)
         item["ranking_penalty"] = ranking_penalty
         item["stability_penalty"] = stability_penalty
         item["cost_penalty"] = cost_penalty

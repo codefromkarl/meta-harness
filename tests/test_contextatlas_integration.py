@@ -739,6 +739,136 @@ def test_contextatlas_benchmark_probe_applies_memory_routing_config(
     }
 
 
+def test_contextatlas_benchmark_probe_degrades_when_memory_lookup_fails(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "runs" / "run-probe"
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir(parents=True)
+    (workspace_dir / "package.json").write_text(
+        '{"name":"fake-contextatlas","type":"module"}', encoding="utf-8"
+    )
+    real_node_modules = Path("/home/yuanzhi/Develop/tools/ContextAtlas/node_modules")
+    (workspace_dir / "node_modules").symlink_to(
+        real_node_modules, target_is_directory=True
+    )
+
+    (workspace_dir / "src" / "db" / "index.ts").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (workspace_dir / "src" / "db" / "index.ts").write_text(
+        "\n".join(
+            [
+                "export function initDb() {",
+                "  return {",
+                "    prepare(sql: string) {",
+                "      return {",
+                "        get() {",
+                '          if (sql.includes("COUNT(*) as c FROM files")) return { c: 12 };',
+                '          if (sql.includes("SUM(length(content))")) return { c: 30000 };',
+                "          if (sql.includes(\"name='chunks_fts'\")) return { name: 'chunks_fts' };",
+                '          if (sql.includes("COUNT(*) as c FROM chunks_fts")) return { c: 20 };',
+                "          return undefined;",
+                "        },",
+                "        all() { return []; },",
+                "      };",
+                "    },",
+                "    close() {},",
+                "  };",
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (workspace_dir / "src" / "storage" / "layout.ts").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (workspace_dir / "src" / "storage" / "layout.ts").write_text(
+        "export function resolveCurrentSnapshotId() { return 'snap-test'; }\n",
+        encoding="utf-8",
+    )
+    (workspace_dir / "src" / "search" / "fts.ts").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (workspace_dir / "src" / "search" / "fts.ts").write_text(
+        "\n".join(
+            [
+                "export function searchFilesFts(_db: unknown, query: string, limit: number) {",
+                "  const targetByQuery: Record<string, string> = {",
+                "    'codebase retrieval SearchService build context pack': 'src/mcp/tools/codebaseRetrieval.ts',",
+                "    'SearchService ContextPacker GraphExpander hybrid search': 'src/search/SearchService.ts',",
+                "    'MemoryRouter route keywords scope cascade': 'src/memory/MemoryRouter.ts',",
+                "    'health check queue snapshots current snapshot vector index': 'src/monitoring/indexHealth.ts',",
+                "  };",
+                "  const target = targetByQuery[query];",
+                "  if (!target) return [];",
+                "  const rows = [",
+                "    { path: 'noise/a.ts', score: 4.0 },",
+                "    { path: 'noise/b.ts', score: 3.0 },",
+                "    { path: target, score: 2.0 },",
+                "    { path: 'noise/c.ts', score: 1.0 },",
+                "  ];",
+                "  return rows.slice(0, limit);",
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (workspace_dir / "src" / "memory" / "MemoryFinder.ts").parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    (workspace_dir / "src" / "memory" / "MemoryFinder.ts").write_text(
+        "\n".join(
+            [
+                "export class MemoryFinder {",
+                "  constructor(_projectRoot: string) {}",
+                "  async find(_query: string) {",
+                "    throw new TypeError('listFeatures is not a function');",
+                "  }",
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    probe_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "contextatlas_benchmark_probe.ts"
+    )
+
+    write_json(
+        run_dir / "effective_config.json",
+        {
+            "retrieval": {"top_k": 12, "rerank_k": 24},
+            "indexing": {"chunk_size": 1000, "chunk_overlap": 40},
+            "contextatlas": {"memory": {"enabled": True}},
+        },
+    )
+    completed = subprocess.run(
+        ["node", "--import", "tsx", str(probe_path), "--project-id", "proj-test"],
+        cwd=workspace_dir,
+        env={**os.environ, "META_HARNESS_RUN_DIR": str(run_dir)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert payload["indexing"]["documentCount"] == 12
+    assert payload["retrieval"]["hitRate"] > 0
+    assert payload["taskQuality"]["taskCaseCount"] >= 10
+    assert payload["memory"] == {
+        "moduleCount": 0,
+        "scopeCount": 0,
+        "completeness": 0,
+        "freshness": 0,
+        "staleRatio": 1,
+    }
+    assert payload["validation"]["memory_lookup_degraded"] is True
+    assert "listFeatures is not a function" in payload["validation"]["memory_error"]
+
+
 def test_contextatlas_benchmark_probe_applies_retrieval_and_indexing_config(
     tmp_path: Path,
 ) -> None:

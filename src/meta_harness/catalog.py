@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 
 
@@ -332,6 +333,36 @@ def run_archive_view(
     }
 
 
+def _select_runs(
+    runs: list[dict[str, Any]],
+    *,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for item in runs:
+        if experiment is not None and item.get("experiment") != experiment:
+            continue
+        if (
+            benchmark_family is not None
+            and item.get("benchmark_family") != benchmark_family
+        ):
+            continue
+        if status is not None and item.get("status") != status:
+            continue
+        selected.append(item)
+    status_order = {"superseded": 0, "failed": 1, "partial": 2}
+    return sorted(
+        selected,
+        key=lambda item: (
+            status_order.get(str(item.get("status")), 99),
+            str(item.get("created_at") or ""),
+            str(item.get("run_id") or ""),
+        ),
+    )
+
+
 def candidate_current_view(
     candidates_root: Path, *, runs_root: Path | None = None
 ) -> dict[str, Any]:
@@ -355,3 +386,148 @@ def candidate_archive_view(
             if item.get("status") == "superseded"
         )
     }
+
+
+def _select_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for item in candidates:
+        if experiment is not None and item.get("experiment") != experiment:
+            continue
+        if (
+            benchmark_family is not None
+            and item.get("benchmark_family") != benchmark_family
+        ):
+            continue
+        selected.append(item)
+    return selected
+
+
+def archive_runs(
+    runs_root: Path,
+    *,
+    archive_root: Path,
+    candidates_root: Path | None = None,
+    dry_run: bool = False,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    index_payload = build_run_index(runs_root, candidates_root=candidates_root)
+    selected_runs = _select_runs(
+        [
+            item
+            for item in index_payload.get("runs", [])
+            if item.get("status") in {"superseded", "failed"}
+        ],
+        experiment=experiment,
+        benchmark_family=benchmark_family,
+        status=status,
+    )
+    archived: list[str] = []
+    archive_runs_root = archive_root / "runs"
+    archive_runs_root.mkdir(parents=True, exist_ok=True)
+    for run_id in [item["run_id"] for item in selected_runs]:
+        source = runs_root / run_id
+        if not source.exists():
+            continue
+        if not dry_run:
+            shutil.move(str(source), str(archive_runs_root / run_id))
+        archived.append(run_id)
+    return {"dry_run": dry_run, "archived_runs": archived}
+
+
+def prune_runs(
+    runs_root: Path,
+    *,
+    candidates_root: Path | None = None,
+    dry_run: bool = False,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    index_payload = build_run_index(runs_root, candidates_root=candidates_root)
+    selected_runs = _select_runs(
+        [
+            item
+            for item in index_payload.get("runs", [])
+            if item.get("status") in {"superseded", "failed"}
+        ],
+        experiment=experiment,
+        benchmark_family=benchmark_family,
+        status=status,
+    )
+    deleted: list[str] = []
+    for run_id in [item["run_id"] for item in selected_runs]:
+        path = runs_root / run_id
+        if not path.exists():
+            continue
+        if not dry_run:
+            shutil.rmtree(path)
+        deleted.append(run_id)
+    return {"dry_run": dry_run, "deleted_runs": deleted}
+
+
+def archive_candidates(
+    candidates_root: Path,
+    *,
+    archive_root: Path,
+    runs_root: Path | None = None,
+    dry_run: bool = False,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+) -> dict[str, Any]:
+    index_payload = build_candidate_index(candidates_root, runs_root=runs_root)
+    selected_candidates = _select_candidates(
+        [
+            item
+            for item in index_payload.get("candidates", [])
+            if item.get("status") == "superseded"
+        ],
+        experiment=experiment,
+        benchmark_family=benchmark_family,
+    )
+    archived: list[str] = []
+    archive_candidates_root = archive_root / "candidates"
+    archive_candidates_root.mkdir(parents=True, exist_ok=True)
+    for candidate_id in [item["candidate_id"] for item in selected_candidates]:
+        source = candidates_root / candidate_id
+        if not source.exists():
+            continue
+        if not dry_run:
+            shutil.move(str(source), str(archive_candidates_root / candidate_id))
+        archived.append(candidate_id)
+    return {"dry_run": dry_run, "archived_candidates": archived}
+
+
+def prune_candidates(
+    candidates_root: Path,
+    *,
+    runs_root: Path | None = None,
+    dry_run: bool = False,
+    experiment: str | None = None,
+    benchmark_family: str | None = None,
+) -> dict[str, Any]:
+    index_payload = build_candidate_index(candidates_root, runs_root=runs_root)
+    selected_candidates = _select_candidates(
+        [
+            item
+            for item in index_payload.get("candidates", [])
+            if item.get("status") == "superseded"
+        ],
+        experiment=experiment,
+        benchmark_family=benchmark_family,
+    )
+    deleted: list[str] = []
+    for candidate_id in [item["candidate_id"] for item in selected_candidates]:
+        path = candidates_root / candidate_id
+        if not path.exists():
+            continue
+        if not dry_run:
+            shutil.rmtree(path)
+        deleted.append(candidate_id)
+    return {"dry_run": dry_run, "deleted_candidates": deleted}

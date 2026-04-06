@@ -1846,6 +1846,7 @@ def test_observe_benchmark_supports_indexing_metric_focus(tmp_path: Path) -> Non
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     by_name = {item["name"]: item for item in payload["variants"]}
+    assert payload["best_variant"] == "larger_chunks"
     assert by_name["larger_chunks"]["delta_from_baseline"]["architecture"] == {
         "index_freshness_ratio": 0.08,
         "vector_coverage_ratio": 0.0,

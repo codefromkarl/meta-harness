@@ -13,6 +13,8 @@ from meta_harness.archive import (
 )
 from meta_harness.benchmark import run_benchmark, run_benchmark_suite
 from meta_harness.catalog import (
+    archive_candidates,
+    archive_runs,
     build_candidate_index,
     build_run_index,
     candidate_archive_view,
@@ -29,7 +31,11 @@ from meta_harness.candidates import (
 )
 from meta_harness.config_loader import load_effective_config
 from meta_harness.datasets import extract_failure_dataset
-from meta_harness.exporters import export_run_trace_otel_json
+from meta_harness.exporters import (
+    export_run_trace_langfuse_json,
+    export_run_trace_otel_json,
+    export_run_trace_phoenix_json,
+)
 from meta_harness.failure_index import search_failure_signatures
 from meta_harness.observation import summarize_observation
 from meta_harness.observation_strategies import resolve_observation_strategy
@@ -225,6 +231,12 @@ def run_archive(
     runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
     candidates_root: Path | None = typer.Option(None, exists=False, file_okay=False),
     archive_root: Path = typer.Option(Path("archive"), exists=False, file_okay=False),
+    dry_run: bool = typer.Option(False, help="Preview without moving files"),
+    experiment: str | None = typer.Option(None, help="Filter by experiment"),
+    benchmark_family: str | None = typer.Option(
+        None, help="Filter by benchmark family"
+    ),
+    status: str | None = typer.Option(None, help="Filter by status"),
 ) -> None:
     typer.echo(
         json.dumps(
@@ -232,6 +244,10 @@ def run_archive(
                 runs_root,
                 archive_root=archive_root,
                 candidates_root=candidates_root,
+                dry_run=dry_run,
+                experiment=experiment,
+                benchmark_family=benchmark_family,
+                status=status,
             )
         )
     )
@@ -241,8 +257,25 @@ def run_archive(
 def run_prune(
     runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
     candidates_root: Path | None = typer.Option(None, exists=False, file_okay=False),
+    dry_run: bool = typer.Option(False, help="Preview without deleting files"),
+    experiment: str | None = typer.Option(None, help="Filter by experiment"),
+    benchmark_family: str | None = typer.Option(
+        None, help="Filter by benchmark family"
+    ),
+    status: str | None = typer.Option(None, help="Filter by status"),
 ) -> None:
-    typer.echo(json.dumps(prune_runs(runs_root, candidates_root=candidates_root)))
+    typer.echo(
+        json.dumps(
+            prune_runs(
+                runs_root,
+                candidates_root=candidates_root,
+                dry_run=dry_run,
+                experiment=experiment,
+                benchmark_family=benchmark_family,
+                status=status,
+            )
+        )
+    )
 
 
 @run_app.command("diff")
@@ -272,9 +305,24 @@ def run_export_trace(
     output: Path = typer.Option(
         ..., exists=False, dir_okay=False, help="Output JSON path"
     ),
+    format: str = typer.Option(
+        "otel-json",
+        "--format",
+        help="Export format: otel-json|phoenix-json|langfuse-json",
+    ),
     runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
 ) -> None:
-    payload = export_run_trace_otel_json(runs_root / run_id)
+    run_dir = runs_root / run_id
+    if format == "otel-json":
+        payload = export_run_trace_otel_json(run_dir)
+    elif format == "phoenix-json":
+        payload = export_run_trace_phoenix_json(run_dir)
+    elif format == "langfuse-json":
+        payload = export_run_trace_langfuse_json(run_dir)
+    else:
+        raise typer.BadParameter(
+            "format must be one of: otel-json, phoenix-json, langfuse-json"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     typer.echo(str(output))
@@ -358,6 +406,58 @@ def candidate_archive_list(
     runs_root: Path | None = typer.Option(None, exists=False, file_okay=False),
 ) -> None:
     typer.echo(json.dumps(candidate_archive_view(candidates_root, runs_root=runs_root)))
+
+
+@candidate_app.command("archive")
+def candidate_archive(
+    candidates_root: Path = typer.Option(
+        Path("candidates"), exists=False, file_okay=False
+    ),
+    runs_root: Path | None = typer.Option(None, exists=False, file_okay=False),
+    archive_root: Path = typer.Option(Path("archive"), exists=False, file_okay=False),
+    dry_run: bool = typer.Option(False, help="Preview without moving files"),
+    experiment: str | None = typer.Option(None, help="Filter by experiment"),
+    benchmark_family: str | None = typer.Option(
+        None, help="Filter by benchmark family"
+    ),
+) -> None:
+    typer.echo(
+        json.dumps(
+            archive_candidates(
+                candidates_root,
+                archive_root=archive_root,
+                runs_root=runs_root,
+                dry_run=dry_run,
+                experiment=experiment,
+                benchmark_family=benchmark_family,
+            )
+        )
+    )
+
+
+@candidate_app.command("prune")
+def candidate_prune(
+    candidates_root: Path = typer.Option(
+        Path("candidates"), exists=False, file_okay=False
+    ),
+    runs_root: Path | None = typer.Option(None, exists=False, file_okay=False),
+    dry_run: bool = typer.Option(False, help="Preview without deleting files"),
+    experiment: str | None = typer.Option(None, help="Filter by experiment"),
+    benchmark_family: str | None = typer.Option(
+        None, help="Filter by benchmark family"
+    ),
+) -> None:
+    typer.echo(
+        json.dumps(
+            prune_candidates(
+                candidates_root,
+                runs_root=runs_root,
+                dry_run=dry_run,
+                experiment=experiment,
+                benchmark_family=benchmark_family,
+            )
+        )
+    )
 
 
 @optimize_app.command("propose")

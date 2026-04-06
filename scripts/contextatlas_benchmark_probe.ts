@@ -297,6 +297,8 @@ async function summarizeMemory(
   completeness: number;
   freshness: number;
   staleRatio: number;
+  degraded: boolean;
+  error?: string;
 }> {
   const memoryEnabled = memoryConfig?.enabled !== false;
   if (!memoryEnabled) {
@@ -306,50 +308,63 @@ async function summarizeMemory(
       completeness: 0,
       freshness: 0,
       staleRatio: 1,
+      degraded: false,
     };
   }
+  try {
+    const { MemoryFinder } = await importWorkspaceModule<{
+      MemoryFinder: new (projectRoot: string) => { find: (query: string, options?: { limit?: number }) => Promise<MemoryResult[]> };
+    }>(workspaceRoot, 'src/memory/MemoryFinder.ts');
 
-  const { MemoryFinder } = await importWorkspaceModule<{
-    MemoryFinder: new (projectRoot: string) => { find: (query: string, options?: { limit?: number }) => Promise<MemoryResult[]> };
-  }>(workspaceRoot, 'src/memory/MemoryFinder.ts');
+    const finder = new MemoryFinder(workspaceRoot);
+    const results = await finder.find('SearchService', { limit: 3 });
+    const best = results[0]?.memory;
+    const exportHit = Boolean(best?.api.exports.includes('SearchService'));
+    const baseFreshness = best ? clamp01(1 - daysSince(best.lastUpdated) / 180) : 0;
+    const baseCompleteness = exportHit ? 1 : 0;
+    const baseStaleRatio = round(best ? Math.max(0, 1 - baseFreshness) * 0.1 : 1);
 
-  const finder = new MemoryFinder(workspaceRoot);
-  const results = await finder.find('SearchService', { limit: 3 });
-  const best = results[0]?.memory;
-  const exportHit = Boolean(best?.api.exports.includes('SearchService'));
-  const baseFreshness = best ? clamp01(1 - daysSince(best.lastUpdated) / 180) : 0;
-  const baseCompleteness = exportHit ? 1 : 0;
-  const baseStaleRatio = round(best ? Math.max(0, 1 - baseFreshness) * 0.1 : 1);
+    const routingMode = memoryConfig?.routing_mode || 'baseline';
+    const freshnessBias = clamp01(Number(memoryConfig?.freshness_bias ?? 0.6));
+    const stalePruneThreshold = clamp01(Number(memoryConfig?.stale_prune_threshold ?? 0.12));
 
-  const routingMode = memoryConfig?.routing_mode || 'baseline';
-  const freshnessBias = clamp01(Number(memoryConfig?.freshness_bias ?? 0.6));
-  const stalePruneThreshold = clamp01(Number(memoryConfig?.stale_prune_threshold ?? 0.12));
+    let completeness = baseCompleteness;
+    let freshness = baseFreshness;
+    let staleRatio = baseStaleRatio;
 
-  let completeness = baseCompleteness;
-  let freshness = baseFreshness;
-  let staleRatio = baseStaleRatio;
+    if (routingMode == 'lightweight') {
+      completeness = clamp01(baseCompleteness * (0.82 + ((1 - freshnessBias) * 0.08)));
+      freshness = clamp01(baseFreshness * (0.97 + ((1 - freshnessBias) * 0.03)));
+      staleRatio = round(clamp01(baseStaleRatio * (1.1 + stalePruneThreshold)));
+    } else if (routingMode == 'freshness-biased') {
+      completeness = clamp01(baseCompleteness * (0.96 + (freshnessBias * 0.04)));
+      freshness = clamp01(baseFreshness + ((1 - baseFreshness) * freshnessBias * 0.35));
+      staleRatio = round(clamp01(baseStaleRatio * (1 - Math.min(0.85, freshnessBias * 0.75))));
+    } else if (routingMode == 'strict-pruning') {
+      completeness = clamp01(baseCompleteness * Math.max(0.7, 1 - (0.8 - stalePruneThreshold)));
+      freshness = clamp01(baseFreshness + ((1 - baseFreshness) * 0.12) + (freshnessBias * 0.03));
+      staleRatio = round(clamp01(baseStaleRatio * Math.max(0.15, stalePruneThreshold * 3)));
+    }
 
-  if (routingMode == 'lightweight') {
-    completeness = clamp01(baseCompleteness * (0.82 + ((1 - freshnessBias) * 0.08)));
-    freshness = clamp01(baseFreshness * (0.97 + ((1 - freshnessBias) * 0.03)));
-    staleRatio = round(clamp01(baseStaleRatio * (1.1 + stalePruneThreshold)));
-  } else if (routingMode == 'freshness-biased') {
-    completeness = clamp01(baseCompleteness * (0.96 + (freshnessBias * 0.04)));
-    freshness = clamp01(baseFreshness + ((1 - baseFreshness) * freshnessBias * 0.35));
-    staleRatio = round(clamp01(baseStaleRatio * (1 - Math.min(0.85, freshnessBias * 0.75))));
-  } else if (routingMode == 'strict-pruning') {
-    completeness = clamp01(baseCompleteness * Math.max(0.7, 1 - (0.8 - stalePruneThreshold)));
-    freshness = clamp01(baseFreshness + ((1 - baseFreshness) * 0.12) + (freshnessBias * 0.03));
-    staleRatio = round(clamp01(baseStaleRatio * Math.max(0.15, stalePruneThreshold * 3)));
+    return {
+      moduleCount: best ? 1 : 0,
+      scopeCount: best ? 1 : 0,
+      completeness: round(completeness),
+      freshness: round(freshness),
+      staleRatio,
+      degraded: false,
+    };
+  } catch (error) {
+    return {
+      moduleCount: 0,
+      scopeCount: 0,
+      completeness: 0,
+      freshness: 0,
+      staleRatio: 1,
+      degraded: true,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
-
-  return {
-    moduleCount: best ? 1 : 0,
-    scopeCount: best ? 1 : 0,
-    completeness: round(completeness),
-    freshness: round(freshness),
-    staleRatio,
-  };
 }
 
 async function main(): Promise<void> {
@@ -590,6 +605,10 @@ async function main(): Promise<void> {
         'indexing.files_reindexed_count': cost.filesReindexedCount,
         'indexing.query_p50_ms': cost.queryP50Ms,
         'indexing.query_p95_ms': cost.queryP95Ms,
+      },
+      validation: {
+        memory_lookup_degraded: memory.degraded,
+        ...(memory.error ? { memory_error: memory.error } : {}),
       },
     };
 

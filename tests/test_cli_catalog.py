@@ -519,6 +519,376 @@ def test_candidate_current_and_archive_list_views(tmp_path: Path) -> None:
     assert archive_payload["superseded_candidates"] == ["cand-old"]
 
 
+def test_run_archive_and_prune_commands_move_and_delete_safe_targets(
+    tmp_path: Path,
+) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    archive_root = tmp_path / "archive"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=2.0, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+    make_run(runs_root, "run-failed", candidate_id=None, composite=None, success=False)
+    write_json(
+        runs_root / "run-old" / "run_metadata.json",
+        {
+            "run_id": "run-old",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-old",
+            "created_at": "2026-04-06T09:30:00Z",
+        },
+    )
+    write_json(
+        runs_root / "run-new" / "run_metadata.json",
+        {
+            "run_id": "run-new",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-new",
+            "created_at": "2026-04-06T10:30:00Z",
+        },
+    )
+
+    runner = CliRunner()
+    archive_result = runner.invoke(
+        app,
+        [
+            "run",
+            "archive",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+    prune_result = runner.invoke(
+        app,
+        [
+            "run",
+            "prune",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+
+    assert archive_result.exit_code == 0
+    assert prune_result.exit_code == 0
+    archive_payload = json.loads(archive_result.stdout)
+    prune_payload = json.loads(prune_result.stdout)
+    assert archive_payload["archived_runs"] == ["run-old", "run-failed"]
+    assert prune_payload["deleted_runs"] == []
+    assert not (runs_root / "run-old").exists()
+    assert not (runs_root / "run-failed").exists()
+    assert (runs_root / "run-new").exists()
+    assert (archive_root / "runs" / "run-old").exists()
+    assert (archive_root / "runs" / "run-failed").exists()
+
+
+def test_candidate_archive_and_prune_commands_move_and_delete_safe_targets(
+    tmp_path: Path,
+) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    archive_root = tmp_path / "archive"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+
+    runner = CliRunner()
+    archive_result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "archive",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+    prune_result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "prune",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+        ],
+    )
+
+    assert archive_result.exit_code == 0
+    assert prune_result.exit_code == 0
+    archive_payload = json.loads(archive_result.stdout)
+    prune_payload = json.loads(prune_result.stdout)
+    assert archive_payload["archived_candidates"] == ["cand-old"]
+    assert prune_payload["deleted_candidates"] == []
+    assert not (candidates_root / "cand-old").exists()
+    assert (candidates_root / "cand-new").exists()
+    assert (archive_root / "candidates" / "cand-old").exists()
+
+
+def test_run_archive_supports_dry_run_and_filters(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    archive_root = tmp_path / "archive"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=2.0, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+    make_run(runs_root, "run-failed", candidate_id=None, composite=None, success=False)
+    write_json(
+        runs_root / "run-old" / "run_metadata.json",
+        {
+            "run_id": "run-old",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-old",
+            "created_at": "2026-04-06T09:30:00Z",
+        },
+    )
+    write_json(
+        runs_root / "run-new" / "run_metadata.json",
+        {
+            "run_id": "run-new",
+            "profile": "base",
+            "project": "demo",
+            "candidate_id": "cand-new",
+            "created_at": "2026-04-06T10:30:00Z",
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "archive",
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--archive-root",
+            str(archive_root),
+            "--dry-run",
+            "--experiment",
+            "contextatlas_combo_validation",
+            "--status",
+            "superseded",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["dry_run"] is True
+    assert payload["archived_runs"] == ["run-old"]
+    assert (runs_root / "run-old").exists()
+    assert not (archive_root / "runs" / "run-old").exists()
+
+
+def test_candidate_prune_supports_dry_run_and_family_filter(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "contextatlas_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "older",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "newer",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "prune",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+            "--dry-run",
+            "--benchmark-family",
+            "combo_validation",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["dry_run"] is True
+    assert payload["deleted_candidates"] == ["cand-old"]
+    assert (candidates_root / "cand-old").exists()
+
+
 def test_run_catalog_builds_classified_index(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     make_run(runs_root, "run-valid", composite=2.5, success=True)
