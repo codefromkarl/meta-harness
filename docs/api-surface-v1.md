@@ -166,6 +166,35 @@
 - `target_id = <run_id>`
 - `path = runs/<run_id>/score_report.json`
 
+### POST /workflows/benchmark
+
+用途：
+
+- 使用 workflow service 解析 workflow、自动绑定 evaluator pack、编译 task set 并运行 benchmark
+- 返回 benchmark experiment 级结果，并记录 job result_ref
+
+请求示例：
+
+```json
+{
+  "reports_root": "reports",
+  "workflow_path": "configs/workflows/news_aggregation.json",
+  "profile": "base",
+  "project": "demo",
+  "spec_path": "configs/benchmarks/news_aggregation_ab.json",
+  "config_root": "configs",
+  "runs_root": "runs",
+  "candidates_root": "candidates",
+  "focus": "workflow"
+}
+```
+
+异步/内联 job 结果引用：
+
+- `target_type = benchmark_experiment`
+- `target_id = <experiment>`
+- `path = null`
+
 ## 6. Candidates
 
 ### GET /candidates

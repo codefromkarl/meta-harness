@@ -445,6 +445,89 @@ def test_api_runs_workflow_inline_job(tmp_path: Path) -> None:
     assert payload["data"]["score"]["composite"] == 1.0
 
 
+def test_api_runs_workflow_benchmark_inline_job(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    repo_root = tmp_path / "repo"
+    candidates_root = tmp_path / "candidates"
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    spec_path = tmp_path / "benchmark.json"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {"evaluation": {"evaluators": ["basic"]}},
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+        },
+    )
+    write_json(
+        config_root / "evaluator_packs" / "web_scrape_core.json",
+        {
+            "pack_id": "web_scrape/core",
+            "supported_primitives": ["web_scrape"],
+            "command": [
+                "python",
+                "-c",
+                "import json; print(json.dumps({'capability_scores': {'web_scrape': {'success_rate': 1.0}}}))",
+            ],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "-c", "print('ok')"],
+                }
+            ],
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "workflow-ab",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}],
+        },
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/workflows/benchmark",
+        json={
+            "reports_root": str(reports_root),
+            "workflow_path": str(workflow_path),
+            "profile": "base",
+            "project": "demo",
+            "config_root": str(config_root),
+            "runs_root": str(runs_root),
+            "candidates_root": str(candidates_root),
+            "spec_path": str(spec_path),
+            "requested_by": "tester",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["data"]["experiment"] == "workflow-ab"
+    assert payload["job"]["job_type"] == "workflow.benchmark"
+    assert payload["job"]["result_ref"]["target_type"] == "benchmark_experiment"
+    assert payload["job"]["result_ref"]["target_id"] == "workflow-ab"
+
+
 def test_api_returns_observation_summary(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
 

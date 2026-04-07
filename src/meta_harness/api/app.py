@@ -13,6 +13,7 @@ from meta_harness.api.contracts import (
     RunScoreRequest,
     StrategyBenchmarkRequest,
     StrategyCreateCandidateRequest,
+    WorkflowBenchmarkRequest,
     WorkflowCompileRequest,
     WorkflowRunRequest,
 )
@@ -45,6 +46,7 @@ from meta_harness.services.strategy_service import (
     inspect_strategy_card_payload,
 )
 from meta_harness.services.workflow_service import (
+    benchmark_workflow_payload,
     compile_workflow_payload,
     inspect_workflow_payload,
     run_workflow_payload,
@@ -200,6 +202,36 @@ def create_app() -> FastAPI:
                 "target_type": "run",
                 "target_id": data["run_id"],
                 "path": f"runs/{data['run_id']}/score_report.json",
+            },
+        )
+
+    @app.post("/workflows/benchmark")
+    def workflow_benchmark(request: WorkflowBenchmarkRequest) -> dict:
+        return execute_inline_job(
+            reports_root=Path(request.reports_root),
+            job_type="workflow.benchmark",
+            requested_by=request.requested_by,
+            job_input={
+                "workflow_path": request.workflow_path,
+                "profile": request.profile,
+                "project": request.project,
+                "spec_path": request.spec_path,
+                "focus": request.focus,
+            },
+            runner=lambda: benchmark_workflow_payload(
+                workflow_path=Path(request.workflow_path),
+                profile_name=request.profile,
+                project_name=request.project,
+                spec_path=Path(request.spec_path),
+                config_root=Path(request.config_root),
+                runs_root=Path(request.runs_root),
+                candidates_root=Path(request.candidates_root),
+                focus=request.focus,
+            ),
+            result_ref_builder=lambda data: {
+                "target_type": "benchmark_experiment",
+                "target_id": data["experiment"],
+                "path": None,
             },
         )
 
