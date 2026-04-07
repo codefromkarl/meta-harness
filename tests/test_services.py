@@ -19,8 +19,10 @@ from meta_harness.services.job_service import (
     complete_job_record,
     create_job_record,
     fail_job_record,
+    list_job_views,
     list_job_records,
     load_job_record,
+    load_job_view,
     start_job_record,
 )
 from meta_harness.services.async_jobs import (
@@ -744,6 +746,79 @@ def test_job_service_lists_and_filters_jobs(tmp_path: Path) -> None:
     assert failed[0]["job_id"] == job_b["job_id"]
     assert len(benchmark) == 1
     assert benchmark[0]["job_type"] == "benchmark.run"
+
+
+def test_job_service_resolves_result_preview_for_run_and_workflow_benchmark(
+    tmp_path: Path,
+) -> None:
+    reports_root = tmp_path / "reports"
+    runs_root = tmp_path / "runs"
+
+    run_dir = runs_root / "run123"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_json(
+        run_dir / "score_report.json",
+        {
+            "composite": 2.5,
+            "capability_scores": {"web_scrape": {"success_rate": 0.9}},
+        },
+    )
+
+    benchmark_report = reports_root / "workflow_benchmarks" / "workflow-ab.json"
+    write_json(
+        benchmark_report,
+        {
+            "experiment": "workflow-ab",
+            "best_variant": "baseline",
+        },
+    )
+
+    run_job = create_job_record(reports_root=reports_root, job_type="workflow.run")
+    benchmark_job = create_job_record(
+        reports_root=reports_root,
+        job_type="workflow.benchmark",
+    )
+
+    complete_job_record(
+        reports_root=reports_root,
+        job_id=str(run_job["job_id"]),
+        result_ref={
+            "target_type": "run",
+            "target_id": "run123",
+            "path": "runs/run123/score_report.json",
+        },
+    )
+    complete_job_record(
+        reports_root=reports_root,
+        job_id=str(benchmark_job["job_id"]),
+        result_ref={
+            "target_type": "benchmark_experiment",
+            "target_id": "workflow-ab",
+            "path": str(benchmark_report),
+        },
+    )
+
+    run_view = load_job_view(
+        reports_root=reports_root,
+        job_id=str(run_job["job_id"]),
+    )
+    benchmark_view = load_job_view(
+        reports_root=reports_root,
+        job_id=str(benchmark_job["job_id"]),
+    )
+    listed = list_job_views(reports_root=reports_root)
+
+    assert run_view["result_preview"] == {
+        "target_type": "run",
+        "target_id": "run123",
+        "composite": 2.5,
+    }
+    assert benchmark_view["result_preview"] == {
+        "target_type": "benchmark_experiment",
+        "target_id": "workflow-ab",
+        "best_variant": "baseline",
+    }
+    assert listed[0]["result_preview"] is not None
 
 
 def test_service_response_builders_return_consistent_envelopes() -> None:

@@ -286,6 +286,9 @@ def test_api_returns_run_detail_and_task_list(tmp_path: Path) -> None:
 
 def test_api_returns_single_job_detail(tmp_path: Path) -> None:
     reports_root = tmp_path / "reports"
+    run_dir = tmp_path / "runs" / "run123"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_json(run_dir / "score_report.json", {"composite": 1.5})
     write_json(
         reports_root / "jobs" / "job123.json",
         {
@@ -293,15 +296,31 @@ def test_api_returns_single_job_detail(tmp_path: Path) -> None:
             "job_type": "run.score",
             "status": "queued",
             "job_input": {"run_id": "run123"},
+            "result_ref": {
+                "target_type": "run",
+                "target_id": "run123",
+                "path": "runs/run123/score_report.json",
+            },
         },
     )
 
     client = TestClient(create_app())
-    response = client.get("/jobs/job123", params={"reports_root": str(reports_root)})
+    response = client.get(
+        "/jobs/job123",
+        params={
+            "reports_root": str(reports_root),
+            "repo_root": str(tmp_path),
+        },
+    )
 
     assert response.status_code == 200
     assert response.json()["job_id"] == "job123"
     assert response.json()["job_type"] == "run.score"
+    assert response.json()["result_preview"] == {
+        "target_type": "run",
+        "target_id": "run123",
+        "composite": 1.5,
+    }
 
 
 def test_api_promotes_candidate(tmp_path: Path) -> None:

@@ -86,6 +86,17 @@
 - `failed`
 - `cancelled`
 
+读取行为：
+
+- `GET /jobs`
+- `GET /jobs/{job_id}`
+
+当 `result_ref` 可解析时，返回对象可附带 `result_preview`，用于直接展示：
+
+- run 的 `composite`
+- benchmark experiment 的 `best_variant`
+- benchmark suite 的 `best_by_experiment`
+
 ## 5. Profiles / Projects
 
 ### GET /profiles

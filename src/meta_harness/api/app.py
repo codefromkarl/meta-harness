@@ -28,8 +28,8 @@ from meta_harness.services.async_jobs import (
 )
 from meta_harness.services.candidate_service import list_champions, promote_candidate_record
 from meta_harness.services.catalog_service import candidate_current_view_payload
-from meta_harness.services.job_service import list_job_records
-from meta_harness.services.job_service import load_job_record
+from meta_harness.services.job_service import list_job_views
+from meta_harness.services.job_service import load_job_view
 from meta_harness.services.observation_service import observe_summary_payload
 from meta_harness.services.profile_service import list_profile_names
 from meta_harness.services.project_service import list_project_names
@@ -93,20 +93,30 @@ def create_app() -> FastAPI:
     @app.get("/jobs")
     def jobs(
         reports_root: str = "reports",
+        repo_root: str | None = None,
         status: str | None = None,
         job_type: str | None = None,
     ) -> dict[str, list[dict]]:
         return {
-            "items": list_job_records(
+            "items": list_job_views(
                 reports_root=Path(reports_root),
+                repo_root=Path(repo_root) if repo_root is not None else None,
                 status=status,
                 job_type=job_type,
             )
         }
 
     @app.get("/jobs/{job_id}")
-    def job_detail(job_id: str, reports_root: str = "reports") -> dict:
-        return load_job_record(reports_root=Path(reports_root), job_id=job_id)
+    def job_detail(
+        job_id: str,
+        reports_root: str = "reports",
+        repo_root: str | None = None,
+    ) -> dict:
+        return load_job_view(
+            reports_root=Path(reports_root),
+            job_id=job_id,
+            repo_root=Path(repo_root) if repo_root is not None else None,
+        )
 
     @app.get("/candidates/current")
     def candidates_current(
