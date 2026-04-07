@@ -204,7 +204,7 @@
 
 - `target_type = benchmark_experiment`
 - `target_id = <experiment>`
-- `path = null`
+- `path = reports/benchmarks/<experiment>.json`
 
 ### POST /workflows/benchmark-suite
 
@@ -232,7 +232,7 @@
 
 - `target_type = benchmark_suite`
 - `target_id = <suite>`
-- `path = null`
+- `path = reports/benchmark-suites/<suite>.json`
 
 ## 6. Candidates
 

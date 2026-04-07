@@ -11,7 +11,11 @@ from meta_harness.services.catalog_service import (
     build_candidate_index_payload,
     build_run_index_payload,
 )
-from meta_harness.services.benchmark_service import observe_benchmark_payload
+from meta_harness.services.benchmark_service import (
+    observe_benchmark_payload,
+    write_benchmark_report,
+    write_benchmark_suite_report,
+)
 from meta_harness.services.dataset_service import extract_failure_dataset_to_path
 from meta_harness.services.export_service import export_run_trace_to_path
 from meta_harness.services.job_service import (
@@ -1321,3 +1325,64 @@ def test_async_job_facade_submits_workflow_jobs(tmp_path: Path) -> None:
     assert suite_payload["ok"] is True
     assert suite_payload["job"]["job_type"] == "workflow.benchmark_suite"
     assert suite_payload["job"]["result_ref"]["target_type"] == "benchmark_suite"
+
+
+def test_benchmark_service_persists_benchmark_reports(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+
+    benchmark_path = write_benchmark_report(
+        reports_root=reports_root,
+        payload={"experiment": "workflow-ab", "best_variant": "baseline"},
+    )
+    suite_path = write_benchmark_suite_report(
+        reports_root=reports_root,
+        payload={
+            "suite": "workflow-suite",
+            "best_by_experiment": {"workflow-ab": "baseline"},
+        },
+    )
+
+    assert benchmark_path.name == "workflow-ab.json"
+    assert suite_path.name == "workflow-suite.json"
+    assert json.loads(benchmark_path.read_text(encoding="utf-8"))["best_variant"] == "baseline"
+    assert json.loads(suite_path.read_text(encoding="utf-8"))["suite"] == "workflow-suite"
+
+
+def test_async_benchmark_jobs_persist_result_refs_to_artifacts(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+
+    benchmark_payload = submit_workflow_benchmark_job(
+        reports_root=reports_root,
+        workflow_path=Path("workflow.json"),
+        spec_path=Path("benchmark.json"),
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        requested_by="tester",
+        runner_override=lambda: {"experiment": "workflow-ab", "best_variant": "baseline"},
+    )
+    suite_payload = submit_workflow_benchmark_suite_job(
+        reports_root=reports_root,
+        workflow_path=Path("workflow.json"),
+        suite_path=Path("suite.json"),
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        requested_by="tester",
+        runner_override=lambda: {
+            "suite": "workflow-suite",
+            "best_by_experiment": {"workflow-ab": "baseline"},
+        },
+    )
+
+    benchmark_ref = benchmark_payload["job"]["result_ref"]
+    suite_ref = suite_payload["job"]["result_ref"]
+
+    assert benchmark_ref["path"] == "reports/benchmarks/workflow-ab.json"
+    assert suite_ref["path"] == "reports/benchmark-suites/workflow-suite.json"
+    assert (tmp_path / benchmark_ref["path"]).exists()
+    assert (tmp_path / suite_ref["path"]).exists()

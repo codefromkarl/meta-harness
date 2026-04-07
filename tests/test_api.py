@@ -545,6 +545,8 @@ def test_api_runs_workflow_benchmark_inline_job(tmp_path: Path) -> None:
     assert payload["job"]["job_type"] == "workflow.benchmark"
     assert payload["job"]["result_ref"]["target_type"] == "benchmark_experiment"
     assert payload["job"]["result_ref"]["target_id"] == "workflow-ab"
+    assert payload["job"]["result_ref"]["path"] == "reports/benchmarks/workflow-ab.json"
+    assert (tmp_path / payload["job"]["result_ref"]["path"]).exists()
 
 
 def test_api_runs_workflow_benchmark_suite_inline_job(tmp_path: Path) -> None:
@@ -638,6 +640,8 @@ def test_api_runs_workflow_benchmark_suite_inline_job(tmp_path: Path) -> None:
     assert payload["job"]["job_type"] == "workflow.benchmark_suite"
     assert payload["job"]["result_ref"]["target_type"] == "benchmark_suite"
     assert payload["job"]["result_ref"]["target_id"] == "workflow-suite"
+    assert payload["job"]["result_ref"]["path"] == "reports/benchmark-suites/workflow-suite.json"
+    assert (tmp_path / payload["job"]["result_ref"]["path"]).exists()
 
 
 def test_api_returns_observation_summary(tmp_path: Path) -> None:

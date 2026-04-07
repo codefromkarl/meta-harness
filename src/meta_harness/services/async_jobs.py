@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from meta_harness.services.benchmark_service import observe_benchmark_payload
+from meta_harness.services.benchmark_service import (
+    observe_benchmark_payload,
+    write_benchmark_report,
+    write_benchmark_suite_report,
+)
 from meta_harness.services.dataset_service import extract_failure_dataset_to_path
 from meta_harness.services.export_service import export_run_trace_to_path
 from meta_harness.services.optimize_service import propose_candidate_payload
@@ -279,6 +283,7 @@ def submit_workflow_benchmark_job(
     project_name: str,
     focus: str | None = None,
     requested_by: str | None = None,
+    runner_override=None,
 ) -> dict:
     return execute_inline_job(
         reports_root=reports_root,
@@ -291,20 +296,29 @@ def submit_workflow_benchmark_job(
             "spec_path": str(spec_path),
             "focus": focus,
         },
-        runner=lambda: benchmark_workflow_payload(
-            workflow_path=workflow_path,
-            profile_name=profile_name,
-            project_name=project_name,
-            spec_path=spec_path,
-            config_root=config_root,
-            runs_root=runs_root,
-            candidates_root=candidates_root,
-            focus=focus,
+        runner=(
+            runner_override
+            if runner_override is not None
+            else lambda: benchmark_workflow_payload(
+                workflow_path=workflow_path,
+                profile_name=profile_name,
+                project_name=project_name,
+                spec_path=spec_path,
+                config_root=config_root,
+                runs_root=runs_root,
+                candidates_root=candidates_root,
+                focus=focus,
+            )
         ),
         result_ref_builder=lambda data: {
             "target_type": "benchmark_experiment",
             "target_id": data["experiment"],
-            "path": None,
+            "path": str(
+                write_benchmark_report(
+                    reports_root=reports_root,
+                    payload=data,
+                ).relative_to(reports_root.parent)
+            ),
         },
     )
 
@@ -320,6 +334,7 @@ def submit_workflow_benchmark_suite_job(
     profile_name: str,
     project_name: str,
     requested_by: str | None = None,
+    runner_override=None,
 ) -> dict:
     return execute_inline_job(
         reports_root=reports_root,
@@ -331,18 +346,27 @@ def submit_workflow_benchmark_suite_job(
             "project": project_name,
             "suite_path": str(suite_path),
         },
-        runner=lambda: benchmark_suite_workflow_payload(
-            workflow_path=workflow_path,
-            profile_name=profile_name,
-            project_name=project_name,
-            suite_path=suite_path,
-            config_root=config_root,
-            runs_root=runs_root,
-            candidates_root=candidates_root,
+        runner=(
+            runner_override
+            if runner_override is not None
+            else lambda: benchmark_suite_workflow_payload(
+                workflow_path=workflow_path,
+                profile_name=profile_name,
+                project_name=project_name,
+                suite_path=suite_path,
+                config_root=config_root,
+                runs_root=runs_root,
+                candidates_root=candidates_root,
+            )
         ),
         result_ref_builder=lambda data: {
             "target_type": "benchmark_suite",
             "target_id": data["suite"],
-            "path": None,
+            "path": str(
+                write_benchmark_suite_report(
+                    reports_root=reports_root,
+                    payload=data,
+                ).relative_to(reports_root.parent)
+            ),
         },
     )

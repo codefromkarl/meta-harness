@@ -26,6 +26,10 @@ from meta_harness.services.async_jobs import (
     submit_run_score_job,
     submit_strategy_benchmark_job,
 )
+from meta_harness.services.benchmark_service import (
+    write_benchmark_report,
+    write_benchmark_suite_report,
+)
 from meta_harness.services.candidate_service import list_champions, promote_candidate_record
 from meta_harness.services.catalog_service import candidate_current_view_payload
 from meta_harness.services.job_service import list_job_views
@@ -243,7 +247,12 @@ def create_app() -> FastAPI:
             result_ref_builder=lambda data: {
                 "target_type": "benchmark_experiment",
                 "target_id": data["experiment"],
-                "path": None,
+                "path": str(
+                    write_benchmark_report(
+                        reports_root=Path(request.reports_root),
+                        payload=data,
+                    ).relative_to(Path(request.reports_root).parent)
+                ),
             },
         )
 
@@ -271,7 +280,12 @@ def create_app() -> FastAPI:
             result_ref_builder=lambda data: {
                 "target_type": "benchmark_suite",
                 "target_id": data["suite"],
-                "path": None,
+                "path": str(
+                    write_benchmark_suite_report(
+                        reports_root=Path(request.reports_root),
+                        payload=data,
+                    ).relative_to(Path(request.reports_root).parent)
+                ),
             },
         )
 
