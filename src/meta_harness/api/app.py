@@ -6,18 +6,23 @@ from fastapi import FastAPI
 
 from meta_harness.api.contracts import (
     DatasetExtractFailuresRequest,
+    ObservationBenchmarkRequest,
     OptimizeProposeRequest,
     PromoteCandidateRequest,
     RunExportTraceRequest,
     RunScoreRequest,
+    StrategyBenchmarkRequest,
+    StrategyCreateCandidateRequest,
     WorkflowCompileRequest,
     WorkflowRunRequest,
 )
 from meta_harness.services.async_jobs import (
     submit_dataset_extract_job,
+    submit_observation_benchmark_job,
     submit_optimize_propose_job,
     submit_run_export_trace_job,
     submit_run_score_job,
+    submit_strategy_benchmark_job,
 )
 from meta_harness.services.candidate_service import list_champions, promote_candidate_record
 from meta_harness.services.catalog_service import candidate_current_view_payload
@@ -35,6 +40,10 @@ from meta_harness.services.run_query_service import (
 )
 from meta_harness.services.service_execution import execute_inline_job
 from meta_harness.services.service_response import success_response
+from meta_harness.services.strategy_service import (
+    create_candidate_from_strategy_card_payload,
+    inspect_strategy_card_payload,
+)
 from meta_harness.services.workflow_service import (
     compile_workflow_payload,
     inspect_workflow_payload,
@@ -126,6 +135,36 @@ def create_app() -> FastAPI:
             limit=limit,
         )
 
+    @app.post("/observations/benchmark")
+    def observation_benchmark(request: ObservationBenchmarkRequest) -> dict:
+        return submit_observation_benchmark_job(
+            reports_root=Path(request.reports_root),
+            config_root=Path(request.config_root),
+            runs_root=Path(request.runs_root),
+            candidates_root=Path(request.candidates_root),
+            profile_name=request.profile,
+            project_name=request.project,
+            task_set_path=Path(request.task_set_path),
+            spec_path=Path(request.spec_path),
+            focus=request.focus,
+            auto_compact_runs=request.auto_compact_runs,
+            requested_by=request.requested_by,
+        )
+
+    @app.get("/strategies/inspect")
+    def strategy_inspect(
+        strategy_card_path: str,
+        config_root: str,
+        profile: str,
+        project: str,
+    ) -> dict:
+        return inspect_strategy_card_payload(
+            strategy_card_path=Path(strategy_card_path),
+            profile_name=profile,
+            project_name=project,
+            config_root=Path(config_root),
+        )
+
     @app.get("/workflows/inspect")
     def workflow_inspect(workflow_path: str) -> dict:
         return inspect_workflow_payload(workflow_path=Path(workflow_path))
@@ -157,6 +196,11 @@ def create_app() -> FastAPI:
                 config_root=Path(request.config_root),
                 runs_root=Path(request.runs_root),
             ),
+            result_ref_builder=lambda data: {
+                "target_type": "run",
+                "target_id": data["run_id"],
+                "path": f"runs/{data['run_id']}/score_report.json",
+            },
         )
 
     @app.post("/runs/{run_id}/score")
@@ -200,6 +244,36 @@ def create_app() -> FastAPI:
             candidates_root=Path(request.candidates_root),
             profile_name=request.profile,
             project_name=request.project,
+            requested_by=request.requested_by,
+        )
+
+    @app.post("/strategies/create-candidate")
+    def strategy_create_candidate(request: StrategyCreateCandidateRequest) -> dict:
+        return success_response(
+            create_candidate_from_strategy_card_payload(
+                strategy_card_path=Path(request.strategy_card_path),
+                profile_name=request.profile,
+                project_name=request.project,
+                config_root=Path(request.config_root),
+                candidates_root=Path(request.candidates_root),
+            )
+        )
+
+    @app.post("/strategies/benchmark")
+    def strategy_benchmark(request: StrategyBenchmarkRequest) -> dict:
+        return submit_strategy_benchmark_job(
+            reports_root=Path(request.reports_root),
+            strategy_card_paths=[Path(path) for path in request.strategy_card_paths],
+            config_root=Path(request.config_root),
+            runs_root=Path(request.runs_root),
+            candidates_root=Path(request.candidates_root),
+            profile_name=request.profile,
+            project_name=request.project,
+            task_set_path=Path(request.task_set_path),
+            experiment=request.experiment,
+            baseline_name=request.baseline,
+            focus=request.focus,
+            template=request.template,
             requested_by=request.requested_by,
         )
 

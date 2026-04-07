@@ -437,6 +437,11 @@ def test_api_runs_workflow_inline_job(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["data"]["run_id"]
     assert payload["job"]["job_type"] == "workflow.run"
+    assert payload["job"]["result_ref"]["target_type"] == "run"
+    assert payload["job"]["result_ref"]["target_id"] == payload["data"]["run_id"]
+    assert payload["job"]["result_ref"]["path"] == (
+        f"runs/{payload['data']['run_id']}/score_report.json"
+    )
     assert payload["data"]["score"]["composite"] == 1.0
 
 
@@ -657,3 +662,194 @@ def test_api_contracts_validate_request_models() -> None:
         output_path="dataset.json",
     ).output_path == "dataset.json"
     assert PromoteCandidateRequest(candidates_root="candidates").candidates_root == "candidates"
+
+
+def test_api_submits_observation_benchmark_job(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    reports_root = tmp_path / "reports"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "from pathlib import Path",
+                "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
+                "top_k = int(payload.get('retrieval', {}).get('top_k', 8))",
+                "print(json.dumps({'composite_adjustment': 2.0 if top_k > 8 else 0.5}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "retrieval": {"top_k": 8},
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {"name": "benchmark-score", "command": ["python", str(evaluator_script)]}
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+        },
+    )
+    write_json(
+        task_set,
+        {
+            "tasks": [
+                {
+                    "task_id": "benchmark-task",
+                    "workdir": str(repo_root),
+                    "phases": [{"phase": "prepare", "command": ["python", "-c", "print('ok')"]}],
+                }
+            ]
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "retrieval-memory-ab",
+            "baseline": "baseline",
+            "variants": [
+                {"name": "baseline"},
+                {"name": "larger_top_k", "config_patch": {"retrieval": {"top_k": 12}}},
+            ],
+        },
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/observations/benchmark",
+        json={
+            "reports_root": str(reports_root),
+            "config_root": str(config_root),
+            "runs_root": str(runs_root),
+            "candidates_root": str(candidates_root),
+            "profile": "base",
+            "project": "demo",
+            "task_set_path": str(task_set),
+            "spec_path": str(spec_path),
+            "auto_compact_runs": False,
+            "requested_by": "tester",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["data"]["best_variant"] == "larger_top_k"
+    assert payload["job"]["job_type"] == "observation.benchmark"
+
+
+def test_api_inspects_and_runs_strategy_actions(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    card_path = tmp_path / "freshness_guard.json"
+    repo_root.mkdir(parents=True, exist_ok=True)
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {"evaluation": {"evaluators": ["basic"]}},
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+        },
+    )
+    write_json(
+        card_path,
+        {
+            "strategy_id": "indexing/freshness-guard-v1",
+            "title": "Freshness Guard",
+            "source": "reference://freshness-guard",
+            "category": "indexing",
+            "change_type": "config_only",
+            "config_patch": {"retrieval": {"top_k": 12}},
+        },
+    )
+    write_json(
+        task_set,
+        {
+            "tasks": [
+                {
+                    "task_id": "benchmark-task",
+                    "workdir": str(repo_root),
+                    "phases": [{"phase": "prepare", "command": ["python", "-c", "print('ok')"]}],
+                }
+            ]
+        },
+    )
+
+    client = TestClient(create_app())
+    inspect_response = client.get(
+        "/strategies/inspect",
+        params={
+            "strategy_card_path": str(card_path),
+            "config_root": str(config_root),
+            "profile": "base",
+            "project": "demo",
+        },
+    )
+    create_response = client.post(
+        "/strategies/create-candidate",
+        json={
+            "strategy_card_path": str(card_path),
+            "config_root": str(config_root),
+            "candidates_root": str(candidates_root),
+            "profile": "base",
+            "project": "demo",
+        },
+    )
+    benchmark_response = client.post(
+        "/strategies/benchmark",
+        json={
+            "reports_root": str(reports_root),
+            "strategy_card_paths": [str(card_path)],
+            "config_root": str(config_root),
+            "runs_root": str(runs_root),
+            "candidates_root": str(candidates_root),
+            "profile": "base",
+            "project": "demo",
+            "task_set_path": str(task_set),
+            "experiment": "strategy-ab",
+            "baseline": "baseline",
+            "requested_by": "tester",
+        },
+    )
+
+    assert inspect_response.status_code == 200
+    assert inspect_response.json()["status"] == "executable"
+    assert create_response.status_code == 200
+    assert create_response.json()["ok"] is True
+    assert create_response.json()["data"]["candidate_id"]
+    assert benchmark_response.status_code == 200
+    assert benchmark_response.json()["ok"] is True
+    assert benchmark_response.json()["job"]["job_type"] == "strategy.benchmark"
