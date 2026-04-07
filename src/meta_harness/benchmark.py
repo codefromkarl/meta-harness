@@ -146,6 +146,7 @@ def _extract_run_mechanism(run_dir: Path) -> dict[str, Any]:
 def _summarize_mechanisms(mechanisms: list[dict[str, Any]]) -> dict[str, Any]:
     fingerprints: dict[str, list[Any]] = {}
     probes: dict[str, list[Any]] = {}
+    validations: list[Any] = []
     for mechanism in mechanisms:
         fingerprint_payload = mechanism.get("fingerprints")
         if isinstance(fingerprint_payload, dict):
@@ -155,6 +156,9 @@ def _summarize_mechanisms(mechanisms: list[dict[str, Any]]) -> dict[str, Any]:
         if isinstance(probe_payload, dict):
             for key, value in probe_payload.items():
                 probes.setdefault(key, []).append(value)
+        validation_payload = mechanism.get("validation")
+        if validation_payload is not None:
+            validations.append(validation_payload)
 
     summary: dict[str, Any] = {}
     if fingerprints:
@@ -166,6 +170,8 @@ def _summarize_mechanisms(mechanisms: list[dict[str, Any]]) -> dict[str, Any]:
         summary["probes"] = {
             key: _merge_signal_values(values) for key, values in sorted(probes.items())
         }
+    if validations:
+        summary["probe_validation"] = _merge_signal_values(validations)
     return summary
 
 
@@ -666,6 +672,7 @@ def run_benchmark(
     spec_path: Path,
     focus: str | None = None,
     workspace_source_override: Path | None = None,
+    effective_config_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     spec = _read_json(spec_path)
     experiment = str(spec.get("experiment", spec_path.stem))
@@ -684,10 +691,14 @@ def run_benchmark(
     benchmark_snapshot_dir: Path | None = None
 
     if benchmark_workspace_source is None:
-        base_effective_config = load_effective_config(
-            config_root=config_root,
-            profile_name=profile_name,
-            project_name=project_name,
+        base_effective_config = (
+            dict(effective_config_override)
+            if isinstance(effective_config_override, dict)
+            else load_effective_config(
+                config_root=config_root,
+                profile_name=profile_name,
+                project_name=project_name,
+            )
         )
         snapshot_root = runs_root / "_benchmark_sources"
         snapshot_root.mkdir(parents=True, exist_ok=True)
@@ -697,10 +708,14 @@ def run_benchmark(
             effective_config=base_effective_config,
         )
     else:
-        base_effective_config = load_effective_config(
-            config_root=config_root,
-            profile_name=profile_name,
-            project_name=project_name,
+        base_effective_config = (
+            dict(effective_config_override)
+            if isinstance(effective_config_override, dict)
+            else load_effective_config(
+                config_root=config_root,
+                profile_name=profile_name,
+                project_name=project_name,
+            )
         )
 
     stability_policy = _stability_policy(base_effective_config)
@@ -722,6 +737,7 @@ def run_benchmark(
                 config_root=config_root,
                 profile_name=profile_name,
                 project_name=project_name,
+                effective_config_override=base_effective_config,
                 config_patch=config_patch,
                 code_patch_path=code_patch_path,
                 notes=f"benchmark:{experiment}:{variant_name}",
@@ -733,6 +749,7 @@ def run_benchmark(
                     "hypothesis": hypothesis,
                     "implementation_id": implementation_id,
                 },
+                reuse_existing=True,
             )
             candidate = load_candidate_record(candidates_root, candidate_id)
             executions: list[dict[str, Any]] = []
