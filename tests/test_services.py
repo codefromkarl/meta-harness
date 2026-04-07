@@ -31,8 +31,10 @@ from meta_harness.services.job_service import (
 )
 from meta_harness.services.async_jobs import (
     submit_dataset_extract_job,
+    submit_observation_benchmark_job,
     submit_run_export_trace_job,
     submit_run_score_job,
+    submit_strategy_benchmark_job,
     submit_workflow_benchmark_job,
     submit_workflow_benchmark_suite_job,
     submit_workflow_run_job,
@@ -1386,3 +1388,44 @@ def test_async_benchmark_jobs_persist_result_refs_to_artifacts(tmp_path: Path) -
     assert suite_ref["path"] == "reports/benchmark-suites/workflow-suite.json"
     assert (tmp_path / benchmark_ref["path"]).exists()
     assert (tmp_path / suite_ref["path"]).exists()
+
+
+def test_async_observation_and_strategy_benchmark_jobs_persist_result_refs(
+    tmp_path: Path,
+) -> None:
+    reports_root = tmp_path / "reports"
+
+    observation_payload = submit_observation_benchmark_job(
+        reports_root=reports_root,
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=Path("task_set.json"),
+        spec_path=Path("benchmark.json"),
+        requested_by="tester",
+        runner_override=lambda: {"experiment": "observation-ab", "best_variant": "baseline"},
+    )
+    strategy_payload = submit_strategy_benchmark_job(
+        reports_root=reports_root,
+        strategy_card_paths=[Path("strategy.json")],
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=Path("task_set.json"),
+        experiment="strategy-ab",
+        baseline_name="baseline",
+        requested_by="tester",
+        runner_override=lambda: {"experiment": "strategy-ab", "best_variant": "variant-a"},
+    )
+
+    observation_ref = observation_payload["job"]["result_ref"]
+    strategy_ref = strategy_payload["job"]["result_ref"]
+
+    assert observation_ref["path"] == "reports/benchmarks/observation-ab.json"
+    assert strategy_ref["path"] == "reports/benchmarks/strategy-ab.json"
+    assert (tmp_path / observation_ref["path"]).exists()
+    assert (tmp_path / strategy_ref["path"]).exists()

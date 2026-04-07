@@ -956,6 +956,10 @@ def test_api_submits_observation_benchmark_job(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["data"]["best_variant"] == "larger_top_k"
     assert payload["job"]["job_type"] == "observation.benchmark"
+    assert payload["job"]["result_ref"]["target_type"] == "benchmark_experiment"
+    assert payload["job"]["result_ref"]["target_id"] == "retrieval-memory-ab"
+    assert payload["job"]["result_ref"]["path"] == "reports/benchmarks/retrieval-memory-ab.json"
+    assert (tmp_path / payload["job"]["result_ref"]["path"]).exists()
 
 
 def test_api_inspects_and_runs_strategy_actions(tmp_path: Path) -> None:
@@ -1052,3 +1056,7 @@ def test_api_inspects_and_runs_strategy_actions(tmp_path: Path) -> None:
     assert benchmark_response.status_code == 200
     assert benchmark_response.json()["ok"] is True
     assert benchmark_response.json()["job"]["job_type"] == "strategy.benchmark"
+    assert benchmark_response.json()["job"]["result_ref"]["target_type"] == "benchmark_experiment"
+    assert benchmark_response.json()["job"]["result_ref"]["target_id"] == "strategy-ab"
+    assert benchmark_response.json()["job"]["result_ref"]["path"] == "reports/benchmarks/strategy-ab.json"
+    assert (tmp_path / benchmark_response.json()["job"]["result_ref"]["path"]).exists()

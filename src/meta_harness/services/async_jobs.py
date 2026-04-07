@@ -159,6 +159,7 @@ def submit_observation_benchmark_job(
     focus: str | None = None,
     auto_compact_runs: bool = True,
     requested_by: str | None = None,
+    runner_override=None,
 ) -> dict:
     return execute_inline_job(
         reports_root=reports_root,
@@ -171,21 +172,30 @@ def submit_observation_benchmark_job(
             "spec_path": str(spec_path),
             "focus": focus,
         },
-        runner=lambda: observe_benchmark_payload(
-            profile_name=profile_name,
-            project_name=project_name,
-            task_set_path=task_set_path,
-            spec_path=spec_path,
-            config_root=config_root,
-            runs_root=runs_root,
-            candidates_root=candidates_root,
-            focus=focus,
-            auto_compact_runs=auto_compact_runs,
+        runner=(
+            runner_override
+            if runner_override is not None
+            else lambda: observe_benchmark_payload(
+                profile_name=profile_name,
+                project_name=project_name,
+                task_set_path=task_set_path,
+                spec_path=spec_path,
+                config_root=config_root,
+                runs_root=runs_root,
+                candidates_root=candidates_root,
+                focus=focus,
+                auto_compact_runs=auto_compact_runs,
+            )
         ),
         result_ref_builder=lambda data: {
             "target_type": "benchmark_experiment",
             "target_id": data["experiment"],
-            "path": None,
+            "path": str(
+                write_benchmark_report(
+                    reports_root=reports_root,
+                    payload=data,
+                ).relative_to(reports_root.parent)
+            ),
         },
     )
 
@@ -205,6 +215,7 @@ def submit_strategy_benchmark_job(
     focus: str | None = None,
     template: str = "generic",
     requested_by: str | None = None,
+    runner_override=None,
 ) -> dict:
     return execute_inline_job(
         reports_root=reports_root,
@@ -216,23 +227,32 @@ def submit_strategy_benchmark_job(
             "strategy_card_paths": [str(path) for path in strategy_card_paths],
             "experiment": experiment,
         },
-        runner=lambda: run_strategy_benchmark_payload(
-            strategy_card_paths=strategy_card_paths,
-            profile_name=profile_name,
-            project_name=project_name,
-            task_set_path=task_set_path,
-            experiment=experiment,
-            baseline_name=baseline_name,
-            config_root=config_root,
-            runs_root=runs_root,
-            candidates_root=candidates_root,
-            focus=focus,
-            template=template,
+        runner=(
+            runner_override
+            if runner_override is not None
+            else lambda: run_strategy_benchmark_payload(
+                strategy_card_paths=strategy_card_paths,
+                profile_name=profile_name,
+                project_name=project_name,
+                task_set_path=task_set_path,
+                experiment=experiment,
+                baseline_name=baseline_name,
+                config_root=config_root,
+                runs_root=runs_root,
+                candidates_root=candidates_root,
+                focus=focus,
+                template=template,
+            )
         ),
         result_ref_builder=lambda data: {
             "target_type": "benchmark_experiment",
             "target_id": data["experiment"],
-            "path": None,
+            "path": str(
+                write_benchmark_report(
+                    reports_root=reports_root,
+                    payload=data,
+                ).relative_to(reports_root.parent)
+            ),
         },
     )
 
