@@ -69,6 +69,12 @@ from meta_harness.services.strategy_service import (
     run_strategy_benchmark_payload,
     shortlist_strategy_cards_payload,
 )
+from meta_harness.services.workflow_service import (
+    benchmark_workflow_payload,
+    compile_workflow_payload,
+    inspect_workflow_payload,
+    run_workflow_payload,
+)
 from meta_harness.strategy_cards import write_strategy_benchmark_spec
 from meta_harness.strategy_cards import (
     create_candidate_from_strategy_card,
@@ -78,15 +84,6 @@ from meta_harness.strategy_cards import (
     shortlist_strategy_cards,
 )
 from meta_harness.trace_store import append_trace_event
-from meta_harness.workflow_compiler import (
-    compile_workflow_spec,
-    load_workflow_spec,
-    write_compiled_workflow_task_set,
-)
-from meta_harness.workflow_evaluator_binding import (
-    bind_evaluator_packs,
-    resolve_workflow_evaluator_packs,
-)
 
 # Compatibility aliases for CLI-level monkeypatching during refactors.
 archive_runs = archive_runs_payload
@@ -189,33 +186,6 @@ def _compaction_compactable_statuses(
     return [str(status) for status in statuses]
 
 
-def _workflow_summary(workflow_path: Path) -> dict[str, object]:
-    spec = load_workflow_spec(workflow_path)
-    return {
-        "workflow_id": spec.workflow_id,
-        "step_count": len(spec.steps),
-        "primitive_ids": sorted({step.primitive_id for step in spec.steps}),
-        "evaluator_packs": list(spec.evaluator_packs),
-    }
-
-
-def _bound_workflow_effective_config(
-    *,
-    config_root: Path,
-    profile_name: str,
-    project_name: str,
-    workflow_path: Path,
-) -> dict[str, object]:
-    workflow_spec = load_workflow_spec(workflow_path)
-    effective_config = load_effective_config(
-        config_root=config_root,
-        profile_name=profile_name,
-        project_name=project_name,
-    )
-    packs = resolve_workflow_evaluator_packs(config_root, workflow_spec)
-    return bind_evaluator_packs(effective_config, packs)
-
-
 @profile_app.command("list")
 def profile_list(
     config_root: Path = typer.Option(Path("configs"), exists=False, file_okay=False),
@@ -230,7 +200,7 @@ def workflow_inspect(
         ..., exists=False, dir_okay=False, help="Workflow spec JSON file"
     ),
 ) -> None:
-    typer.echo(json.dumps(_workflow_summary(workflow)))
+    typer.echo(json.dumps(inspect_workflow_payload(workflow_path=workflow)))
 
 
 @workflow_app.command("compile")
@@ -242,9 +212,11 @@ def workflow_compile(
         ..., exists=False, dir_okay=False, help="Compiled task set JSON output"
     ),
 ) -> None:
-    spec = load_workflow_spec(workflow)
-    write_compiled_workflow_task_set(spec, output)
-    typer.echo(output)
+    payload = compile_workflow_payload(
+        workflow_path=workflow,
+        output_path=output,
+    )
+    typer.echo(payload["output_path"])
 
 
 @workflow_app.command("run")
@@ -261,23 +233,14 @@ def workflow_run(
     ),
 ) -> None:
     del candidates_root
-    spec = load_workflow_spec(workflow)
-    effective_config = _bound_workflow_effective_config(
-        config_root=config_root,
+    payload = run_workflow_payload(
+        workflow_path=workflow,
         profile_name=profile,
         project_name=project,
-        workflow_path=workflow,
+        config_root=config_root,
+        runs_root=runs_root,
+        execute_managed_run_fn=execute_managed_run,
     )
-    with TemporaryDirectory(prefix="meta-harness-workflow-run-") as temp_dir:
-        task_set_path = Path(temp_dir) / f"{spec.workflow_id}.task_set.json"
-        write_compiled_workflow_task_set(spec, task_set_path)
-        payload = execute_managed_run(
-            runs_root=runs_root,
-            profile_name=profile,
-            project_name=project,
-            effective_config=effective_config,
-            task_set_path=task_set_path,
-        )
     typer.echo(json.dumps(payload))
 
 
@@ -305,41 +268,22 @@ def workflow_benchmark(
         help="Compact historical run workspaces after workflow benchmark completes",
     ),
 ) -> None:
-    workflow_spec = load_workflow_spec(workflow)
-    effective_config = _bound_workflow_effective_config(
-        config_root=config_root,
+    payload = benchmark_workflow_payload(
+        workflow_path=workflow,
         profile_name=profile,
         project_name=project,
-        workflow_path=workflow,
+        spec_path=spec,
+        config_root=config_root,
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        focus=focus,
+        auto_compact_runs=auto_compact_runs,
+        include_artifacts=_compaction_include_artifacts(config_root, project, None),
+        compactable_statuses=_compaction_compactable_statuses(config_root, project),
+        cleanup_auxiliary_dirs=_compaction_cleanup_auxiliary_dirs(config_root, project),
+        run_benchmark_fn=run_benchmark,
+        compact_runs_fn=compact_runs,
     )
-    with TemporaryDirectory(prefix="meta-harness-workflow-benchmark-") as temp_dir:
-        task_set_path = Path(temp_dir) / f"{workflow_spec.workflow_id}.task_set.json"
-        write_compiled_workflow_task_set(workflow_spec, task_set_path)
-        payload = run_benchmark(
-            config_root=config_root,
-            runs_root=runs_root,
-            candidates_root=candidates_root,
-            profile_name=profile,
-            project_name=project,
-            task_set_path=task_set_path,
-            spec_path=spec,
-            focus=focus,
-            effective_config_override=effective_config,
-        )
-    if auto_compact_runs:
-        payload["run_compaction"] = compact_runs(
-            runs_root,
-            candidates_root=candidates_root,
-            include_artifacts=_compaction_include_artifacts(config_root, project, None),
-            compactable_statuses=_compaction_compactable_statuses(
-                config_root,
-                project,
-            ),
-            cleanup_auxiliary_dirs=_compaction_cleanup_auxiliary_dirs(
-                config_root,
-                project,
-            ),
-        )
     typer.echo(json.dumps(payload))
 
 
