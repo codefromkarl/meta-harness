@@ -27,6 +27,9 @@ from meta_harness.services.async_jobs import (
     submit_dataset_extract_job,
     submit_run_export_trace_job,
     submit_run_score_job,
+    submit_workflow_benchmark_job,
+    submit_workflow_benchmark_suite_job,
+    submit_workflow_run_job,
 )
 from meta_harness.services.service_execution import execute_inline_job
 from meta_harness.services.service_response import error_response, success_response
@@ -48,6 +51,7 @@ from meta_harness.services.strategy_service import (
     inspect_strategy_card_payload,
 )
 from meta_harness.services.workflow_service import (
+    benchmark_suite_workflow_payload,
     benchmark_workflow_payload,
     compile_workflow_payload,
     inspect_workflow_payload,
@@ -1050,3 +1054,195 @@ def test_workflow_service_run_and_benchmark_bind_evaluator_packs(tmp_path: Path)
             "command": ["python", "scripts/eval_web_scrape.py"],
         }
     ]
+
+
+def test_workflow_service_benchmark_suite_binds_evaluator_packs(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    repo_root = tmp_path / "repo"
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    suite_path = tmp_path / "suite.json"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {"evaluation": {"evaluators": ["basic"]}},
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+        },
+    )
+    write_json(
+        config_root / "evaluator_packs" / "web_scrape_core.json",
+        {
+            "pack_id": "web_scrape/core",
+            "supported_primitives": ["web_scrape"],
+            "command": ["python", "scripts/eval_web_scrape.py"],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "scripts/fetch.py"],
+                }
+            ],
+        },
+    )
+    write_json(
+        suite_path,
+        {
+            "suite": "workflow-suite",
+            "benchmarks": [
+                {"spec": "benchmarks/a.json"},
+                {"spec": "benchmarks/b.json", "focus": "workflow"},
+            ],
+        },
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_run_benchmark_suite(**kwargs):
+        captured.update(kwargs)
+        return {"suite": "workflow-suite", "benchmark_count": 2, "benchmarks": []}
+
+    payload = benchmark_suite_workflow_payload(
+        workflow_path=workflow_path,
+        profile_name="base",
+        project_name="demo",
+        suite_path=suite_path,
+        config_root=config_root,
+        runs_root=runs_root,
+        candidates_root=tmp_path / "candidates",
+        run_benchmark_suite_fn=fake_run_benchmark_suite,
+        compact_runs_fn=lambda *args, **kwargs: {"compacted_runs": []},
+    )
+
+    assert payload["suite"] == "workflow-suite"
+    assert captured["effective_config_override"]["evaluation"]["command_evaluators"] == [
+        {
+            "name": "web_scrape/core",
+            "command": ["python", "scripts/eval_web_scrape.py"],
+        }
+    ]
+
+
+def test_async_job_facade_submits_workflow_jobs(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    repo_root = tmp_path / "repo"
+    candidates_root = tmp_path / "candidates"
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    spec_path = tmp_path / "benchmark.json"
+    suite_path = tmp_path / "suite.json"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {"evaluation": {"evaluators": ["basic"]}},
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+        },
+    )
+    write_json(
+        config_root / "evaluator_packs" / "web_scrape_core.json",
+        {
+            "pack_id": "web_scrape/core",
+            "supported_primitives": ["web_scrape"],
+            "command": [
+                "python",
+                "-c",
+                "import json; print(json.dumps({'capability_scores': {'web_scrape': {'success_rate': 1.0}}}))",
+            ],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "-c", "print('ok')"],
+                }
+            ],
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "workflow-ab",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}],
+        },
+    )
+    write_json(
+        suite_path,
+        {
+            "suite": "workflow-suite",
+            "benchmarks": [
+                {"spec": str(spec_path)},
+            ],
+        },
+    )
+
+    run_payload = submit_workflow_run_job(
+        reports_root=reports_root,
+        workflow_path=workflow_path,
+        config_root=config_root,
+        runs_root=runs_root,
+        profile_name="base",
+        project_name="demo",
+        requested_by="tester",
+    )
+    benchmark_payload = submit_workflow_benchmark_job(
+        reports_root=reports_root,
+        workflow_path=workflow_path,
+        spec_path=spec_path,
+        config_root=config_root,
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        profile_name="base",
+        project_name="demo",
+        requested_by="tester",
+    )
+    suite_payload = submit_workflow_benchmark_suite_job(
+        reports_root=reports_root,
+        workflow_path=workflow_path,
+        suite_path=suite_path,
+        config_root=config_root,
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        profile_name="base",
+        project_name="demo",
+        requested_by="tester",
+    )
+
+    assert run_payload["ok"] is True
+    assert run_payload["job"]["job_type"] == "workflow.run"
+    assert run_payload["job"]["result_ref"]["target_type"] == "run"
+    assert benchmark_payload["ok"] is True
+    assert benchmark_payload["job"]["job_type"] == "workflow.benchmark"
+    assert benchmark_payload["job"]["result_ref"]["target_type"] == "benchmark_experiment"
+    assert suite_payload["ok"] is True
+    assert suite_payload["job"]["job_type"] == "workflow.benchmark_suite"
+    assert suite_payload["job"]["result_ref"]["target_type"] == "benchmark_suite"

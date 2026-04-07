@@ -195,6 +195,34 @@
 - `target_id = <experiment>`
 - `path = null`
 
+### POST /workflows/benchmark-suite
+
+用途：
+
+- 使用 workflow service 解析 workflow、自动绑定 evaluator pack、编译 task set 并运行 benchmark suite
+- 返回 suite 级结果，并记录 suite 级 result_ref
+
+请求示例：
+
+```json
+{
+  "reports_root": "reports",
+  "workflow_path": "configs/workflows/news_aggregation.json",
+  "profile": "base",
+  "project": "demo",
+  "suite_path": "configs/benchmarks/news_aggregation_suite.json",
+  "config_root": "configs",
+  "runs_root": "runs",
+  "candidates_root": "candidates"
+}
+```
+
+异步/内联 job 结果引用：
+
+- `target_type = benchmark_suite`
+- `target_id = <suite>`
+- `path = null`
+
 ## 6. Candidates
 
 ### GET /candidates

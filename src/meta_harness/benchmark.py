@@ -898,6 +898,7 @@ def run_benchmark_suite(
     project_name: str,
     task_set_path: Path,
     suite_path: Path,
+    effective_config_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     suite = _read_json(suite_path)
     suite_name = str(suite.get("suite", suite_path.stem))
@@ -912,10 +913,14 @@ def run_benchmark_suite(
     workspace_source_override: Path | None = None
     snapshot_dir: Path | None = None
 
-    base_effective_config = load_effective_config(
-        config_root=config_root,
-        profile_name=profile_name,
-        project_name=project_name,
+    base_effective_config = (
+        dict(effective_config_override)
+        if isinstance(effective_config_override, dict)
+        else load_effective_config(
+            config_root=config_root,
+            profile_name=profile_name,
+            project_name=project_name,
+        )
     )
     snapshot_root = runs_root / "_suite_sources"
     snapshot_root.mkdir(parents=True, exist_ok=True)
@@ -945,6 +950,7 @@ def run_benchmark_suite(
                 spec_path=spec_path,
                 focus=str(focus) if focus is not None else None,
                 workspace_source_override=workspace_source_override,
+                effective_config_override=base_effective_config,
             )
             results.append(payload)
             best_by_experiment[payload["experiment"]] = payload["best_variant"]

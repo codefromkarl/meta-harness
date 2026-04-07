@@ -69,6 +69,18 @@ class WorkflowBenchmarkRequest(BaseModel):
     requested_by: str | None = None
 
 
+class WorkflowBenchmarkSuiteRequest(BaseModel):
+    reports_root: str
+    workflow_path: str
+    profile: str
+    project: str
+    suite_path: str
+    config_root: str = "configs"
+    runs_root: str = "runs"
+    candidates_root: str = "candidates"
+    requested_by: str | None = None
+
+
 class ObservationBenchmarkRequest(BaseModel):
     reports_root: str
     config_root: str
