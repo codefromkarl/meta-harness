@@ -8,6 +8,10 @@ from meta_harness.config_loader import load_effective_config
 
 
 DEFAULT_HEADROOM_THRESHOLDS: dict[str, dict[str, float]] = {
+    "workflow": {
+        "hot_path_success_rate": 0.9,
+        "fallback_rate": 0.15,
+    },
     "indexing": {
         "vector_coverage_ratio": 0.9,
         "index_freshness_ratio": 0.85,
@@ -65,11 +69,21 @@ class ObservationStrategy:
         score: dict[str, Any],
         thresholds: dict[str, dict[str, float]],
     ) -> list[str]:
+        workflow = score.get("workflow_scores") or {}
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
         retrieval = score.get("retrieval") or {}
 
         gaps: list[str] = []
+
+        if (value := workflow.get("hot_path_success_rate")) is not None and float(
+            value
+        ) < thresholds["workflow"]["hot_path_success_rate"]:
+            gaps.append("hot_path_success_rate")
+        if (value := workflow.get("fallback_rate")) is not None and float(
+            value
+        ) > thresholds["workflow"]["fallback_rate"]:
+            gaps.append("fallback_rate")
 
         if (value := architecture.get("vector_coverage_ratio")) is not None and float(
             value
@@ -114,9 +128,24 @@ class ObservationStrategy:
         score: dict[str, Any],
         thresholds: dict[str, dict[str, float]],
     ) -> list[str]:
+        workflow = score.get("workflow_scores") or {}
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
         retrieval = score.get("retrieval") or {}
+
+        if focus == "workflow":
+            gaps: list[str] = []
+            if (
+                (value := workflow.get("hot_path_success_rate")) is not None
+                and float(value) < thresholds["workflow"]["hot_path_success_rate"]
+            ):
+                gaps.append("hot_path_success_rate")
+            if (
+                (value := workflow.get("fallback_rate")) is not None
+                and float(value) > thresholds["workflow"]["fallback_rate"]
+            ):
+                gaps.append("fallback_rate")
+            return gaps
 
         if focus == "indexing":
             gaps: list[str] = []
@@ -190,8 +219,21 @@ class ObservationStrategy:
         if not score:
             return "none"
 
+        workflow = score.get("workflow_scores") or {}
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
+
+        if (
+            (
+                (value := workflow.get("hot_path_success_rate")) is not None
+                and float(value) < thresholds["workflow"]["hot_path_success_rate"]
+            )
+            or (
+                (value := workflow.get("fallback_rate")) is not None
+                and float(value) > thresholds["workflow"]["fallback_rate"]
+            )
+        ):
+            return "workflow"
 
         if (
             maintainability.get("profile_present") is False
@@ -271,6 +313,18 @@ class ObservationStrategy:
         score = score or {}
         gap_signals = self.focus_gap_names(focus, score, thresholds)
 
+        if focus == "workflow":
+            primitive_id = self._recommended_workflow_primitive(score)
+            return {
+                "focus": "workflow",
+                **({"primitive_id": primitive_id} if primitive_id else {}),
+                "variant_type": "method_family",
+                "proposal_strategy": "explore_workflow_method_family",
+                "hypothesis": "improve hot path success rate while reducing fallback reliance across workflow steps",
+                "gap_signals": gap_signals,
+                "metric_thresholds": thresholds["workflow"],
+            }
+
         if focus == "indexing":
             return {
                 "focus": "indexing",
@@ -310,6 +364,29 @@ class ObservationStrategy:
             }
 
         return None
+
+    def _recommended_workflow_primitive(
+        self,
+        score: dict[str, Any],
+    ) -> str | None:
+        capability_scores = score.get("capability_scores") or {}
+        if not isinstance(capability_scores, dict) or not capability_scores:
+            return None
+
+        def sort_key(item: tuple[str, Any]) -> tuple[float, float, str]:
+            primitive_id, payload = item
+            metrics = payload if isinstance(payload, dict) else {}
+            success_rate = metrics.get("success_rate")
+            latency_ms = metrics.get("latency_ms")
+            normalized_success = (
+                float(success_rate) if isinstance(success_rate, (int, float)) else 1.0
+            )
+            normalized_latency = (
+                -float(latency_ms) if isinstance(latency_ms, (int, float)) else 0.0
+            )
+            return (normalized_success, normalized_latency, primitive_id)
+
+        return sorted(capability_scores.items(), key=sort_key)[0][0]
 
 
 class ContextAtlasObservationStrategy(ObservationStrategy):

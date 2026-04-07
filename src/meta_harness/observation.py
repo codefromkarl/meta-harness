@@ -135,6 +135,10 @@ def summarize_observation(
         else {},
         "architecture": latest_score.get("architecture", {}) if latest_score else {},
         "retrieval": latest_score.get("retrieval", {}) if latest_score else {},
+        "workflow": latest_score.get("workflow_scores", {}) if latest_score else {},
+        "capability_scores": latest_score.get("capability_scores", {})
+        if latest_score
+        else {},
         "needs_optimization": needs_optimization,
         "recommended_focus": recommended_focus,
         "architecture_recommendation": architecture_recommendation,

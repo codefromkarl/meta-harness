@@ -511,3 +511,66 @@ def test_list_observation_runs_supports_limit_for_recent_history(
             "recommended_focus": "none",
         },
     ]
+
+
+def test_summarize_observation_reports_generic_workflow_gap(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {"workflow": "workflow", "overrides": {}},
+    )
+    write_run(
+        runs_root,
+        "run-workflow-gap",
+        profile="workflow",
+        project="workflow_demo",
+        created_at="2026-04-05T10:00:00Z",
+        score={
+            "maintainability": {},
+            "architecture": {},
+            "retrieval": {},
+            "workflow_scores": {
+                "hot_path_success_rate": 0.62,
+                "fallback_rate": 0.31,
+            },
+            "capability_scores": {
+                "web_scrape": {"success_rate": 0.7, "latency_ms": 2300}
+            },
+            "composite": 5.0,
+        },
+    )
+
+    summary = summarize_observation(
+        runs_root,
+        "workflow",
+        "workflow_demo",
+        config_root=config_root,
+    )
+
+    assert summary["needs_optimization"] is True
+    assert summary["recommended_focus"] == "workflow"
+    assert summary["workflow"] == {
+        "hot_path_success_rate": 0.62,
+        "fallback_rate": 0.31,
+    }
+    assert summary["capability_scores"] == {
+        "web_scrape": {"success_rate": 0.7, "latency_ms": 2300}
+    }
+    assert summary["architecture_recommendation"] == {
+        "focus": "workflow",
+        "primitive_id": "web_scrape",
+        "variant_type": "method_family",
+        "proposal_strategy": "explore_workflow_method_family",
+        "hypothesis": "improve hot path success rate while reducing fallback reliance across workflow steps",
+        "gap_signals": ["hot_path_success_rate", "fallback_rate"],
+        "metric_thresholds": {
+            "hot_path_success_rate": 0.9,
+            "fallback_rate": 0.15,
+        },
+    }
