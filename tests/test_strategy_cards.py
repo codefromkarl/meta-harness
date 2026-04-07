@@ -76,6 +76,38 @@ def test_strategy_card_to_benchmark_variant_supports_patch_based_cards(
     ]
 
 
+def test_strategy_card_to_benchmark_variant_preserves_primitive_metadata(
+    tmp_path: Path,
+) -> None:
+    card_path = tmp_path / "web_scrape_fast_path.json"
+    write_json(
+        card_path,
+        {
+            "strategy_id": "workflow/web-scrape-fast-path",
+            "title": "Web Scrape Fast Path",
+            "source": "https://example.invalid/workflow/web-scrape-fast-path",
+            "category": "workflow",
+            "primitive_id": "web_scrape",
+            "capability_metadata": {
+                "pack_id": "web_scrape",
+                "role": "hot_path",
+            },
+            "change_type": "config_only",
+            "config_patch": {"workflow": {"web_scrape": {"timeout_ms": 5000}}},
+        },
+    )
+
+    card = load_strategy_card(card_path)
+    variant = strategy_card_to_benchmark_variant(card)
+
+    assert variant["strategy_metadata"]["primitive_id"] == "web_scrape"
+    assert variant["strategy_metadata"]["capability_metadata"] == {
+        "pack_id": "web_scrape",
+        "role": "hot_path",
+    }
+    assert "web_scrape" in variant["tags"]
+
+
 def test_build_strategy_benchmark_spec_skips_non_executable_cards(
     tmp_path: Path,
 ) -> None:
@@ -435,6 +467,60 @@ def test_evaluate_strategy_card_compatibility_marks_review_required_cards(
     assert report["can_create_candidate"] is True
 
 
+def test_evaluate_strategy_card_compatibility_reports_primitive_metadata(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {"workspace": {"source_repo": str(repo_root)}},
+            },
+        },
+    )
+    card_path = tmp_path / "web_scrape_fast_path.json"
+    write_json(
+        card_path,
+        {
+            "strategy_id": "workflow/web-scrape-fast-path",
+            "title": "Web Scrape Fast Path",
+            "source": "https://example.invalid/workflow/web-scrape-fast-path",
+            "category": "workflow",
+            "primitive_id": "web_scrape",
+            "capability_metadata": {
+                "pack_id": "web_scrape",
+                "role": "hot_path",
+            },
+            "change_type": "config_only",
+            "config_patch": {"workflow": {"web_scrape": {"timeout_ms": 5000}}},
+        },
+    )
+
+    report = evaluate_strategy_card_compatibility(
+        load_strategy_card(card_path),
+        config_root=config_root,
+        profile_name="base",
+        project_name="demo",
+        strategy_card_path=card_path,
+    )
+
+    assert report["status"] == "executable"
+    assert report["primitive_id"] == "web_scrape"
+    assert report["capability_metadata"] == {
+        "pack_id": "web_scrape",
+        "role": "hot_path",
+    }
+
+
 def test_strategy_create_candidate_command_materializes_candidate_from_card(
     tmp_path: Path,
 ) -> None:
@@ -504,6 +590,81 @@ def test_strategy_create_candidate_command_materializes_candidate_from_card(
         "chunk_overlap": 160,
         "freshness_guard": True,
     }
+
+
+def test_strategy_create_candidate_reuses_equivalent_candidate(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+    card_path = tmp_path / "freshness_guard.json"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {"workflow": "base", "overrides": {}},
+    )
+    write_json(
+        card_path,
+        {
+            "strategy_id": "indexing/freshness-guard-v1",
+            "title": "Freshness Guard",
+            "source": "reference://freshness-guard",
+            "category": "indexing",
+            "change_type": "config_only",
+            "config_patch": {
+                "indexing": {
+                    "chunk_size": 1200,
+                    "chunk_overlap": 160,
+                    "freshness_guard": True,
+                }
+            },
+        },
+    )
+
+    runner = CliRunner()
+    first = runner.invoke(
+        app,
+        [
+            "strategy",
+            "create-candidate",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--candidates-root",
+            str(candidates_root),
+            str(card_path),
+        ],
+    )
+    second = runner.invoke(
+        app,
+        [
+            "strategy",
+            "create-candidate",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--candidates-root",
+            str(candidates_root),
+            str(card_path),
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert second.stdout.strip() == first.stdout.strip()
+    candidate_dirs = [path for path in candidates_root.iterdir() if path.is_dir()]
+    assert len(candidate_dirs) == 1
 
 
 def test_strategy_create_candidate_command_blocks_incompatible_card(

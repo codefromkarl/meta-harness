@@ -10,6 +10,7 @@ from meta_harness.config_loader import load_effective_config
 from meta_harness.candidates import create_candidate, load_candidate_record
 from meta_harness.failure_index import load_or_extract_failure_signatures
 from meta_harness.optimizer_workflow import get_run_context_strategy
+from meta_harness.primitive_registry import load_registered_primitive_pack
 from meta_harness.runtime import execute_managed_run
 
 
@@ -243,6 +244,8 @@ def propose_candidate_from_architecture_recommendation(
     runs_root: Path | None = None,
 ) -> str:
     focus = str(architecture_recommendation.get("focus", "retrieval"))
+    primitive_id = architecture_recommendation.get("primitive_id")
+    primitive_id = str(primitive_id) if primitive_id else None
     effective_config = load_effective_config(
         config_root=config_root,
         profile_name=profile_name,
@@ -254,10 +257,16 @@ def propose_candidate_from_architecture_recommendation(
         )
     )
     hypothesis = str(architecture_recommendation.get("hypothesis", "")).strip()
+    selected_pack_template = _select_pack_driven_proposal_template(
+        config_root=config_root,
+        architecture_recommendation=architecture_recommendation,
+    )
 
     expected_signals = architecture_recommendation.get("expected_signals")
     if not isinstance(expected_signals, dict):
-        if focus == "retrieval":
+        if selected_pack_template is not None and selected_pack_template.expected_signals:
+            expected_signals = dict(selected_pack_template.expected_signals)
+        elif focus == "retrieval":
             expected_signals = {"probes": {"retrieval.retrieval_budget": {"min": 1}}}
         elif focus == "memory":
             expected_signals = {
@@ -269,8 +278,13 @@ def propose_candidate_from_architecture_recommendation(
     tags = architecture_recommendation.get("tags")
     if not isinstance(tags, list):
         tags = ["auto-propose", "method-family", focus]
+        if primitive_id:
+            tags.append(primitive_id)
+        if selected_pack_template is not None:
+            tags.extend(selected_pack_template.tags)
 
     config_patch = _default_architecture_config_patch(
+        config_root=config_root,
         focus=focus,
         architecture_recommendation=architecture_recommendation,
         effective_config=effective_config,
@@ -299,6 +313,8 @@ def propose_candidate_from_architecture_recommendation(
         "expected_signals": expected_signals,
         "tags": tags,
     }
+    if selected_pack_template is not None:
+        proposal["selected_template_id"] = selected_pack_template.template_id
 
     return create_candidate(
         candidates_root=candidates_root,
@@ -308,11 +324,13 @@ def propose_candidate_from_architecture_recommendation(
         config_patch=config_patch,
         notes=f"architecture recommendation proposal: {proposal_strategy}",
         proposal=proposal,
+        reuse_existing=True,
     )
 
 
 def _default_architecture_config_patch(
     *,
+    config_root: Path,
     focus: str,
     architecture_recommendation: dict[str, Any],
     effective_config: dict[str, Any],
@@ -330,6 +348,19 @@ def _default_architecture_config_patch(
             "architecture_recommendation": architecture_recommendation,
         }
     }
+
+    pack_template = _select_pack_driven_proposal_template(
+        config_root=config_root,
+        architecture_recommendation=architecture_recommendation,
+    )
+    if pack_template is not None:
+        primitive_id = str(architecture_recommendation["primitive_id"])
+        config_patch["workflow"] = {
+            "primitives": {
+                primitive_id: dict(pack_template.knobs),
+            }
+        }
+        return config_patch
 
     if focus == "retrieval":
         is_strong_gap = len(gap_signals) >= 3 or (
@@ -438,6 +469,30 @@ def _default_architecture_config_patch(
         return config_patch
 
     return config_patch
+
+
+def _select_pack_driven_proposal_template(
+    *,
+    config_root: Path,
+    architecture_recommendation: dict[str, Any],
+):
+    primitive_id = architecture_recommendation.get("primitive_id")
+    if not isinstance(primitive_id, str) or not primitive_id:
+        return None
+
+    try:
+        pack = load_registered_primitive_pack(config_root, primitive_id)
+    except FileNotFoundError:
+        return None
+
+    templates = list(pack.proposal_templates)
+    if not templates:
+        return None
+
+    gap_signals = architecture_recommendation.get("gap_signals")
+    gap_signals = gap_signals if isinstance(gap_signals, list) else []
+    candidate_index = 1 if len(gap_signals) >= 2 and len(templates) > 1 else 0
+    return templates[candidate_index]
 
 
 def _select_exploration_candidate(
@@ -621,6 +676,7 @@ def propose_candidate_from_failures(
             code_patch_content=generated.get("code_patch"),
             notes=generated.get("notes", "optimizer proposal from command"),
             proposal=generated.get("proposal"),
+            reuse_existing=True,
         )
 
     families: dict[str, list[dict[str, Any]]] = {}
@@ -658,6 +714,7 @@ def propose_candidate_from_failures(
         config_patch=config_patch,
         notes=notes,
         proposal=proposal,
+        reuse_existing=True,
     )
 
 

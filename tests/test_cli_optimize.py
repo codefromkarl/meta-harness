@@ -147,6 +147,69 @@ def test_optimize_propose_creates_candidate_from_failed_runs(tmp_path: Path) -> 
     assert effective_config["budget"]["max_turns"] == 18
 
 
+def test_optimize_propose_reuses_equivalent_candidate_on_repeat_invocation(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "java_to_rust.json",
+        {"description": "workflow", "defaults": {"retrieval": {"top_k": 8}}},
+    )
+    write_json(
+        config_root / "projects" / "voidsector.json",
+        {"workflow": "java_to_rust", "overrides": {"budget": {"max_turns": 16}}},
+    )
+
+    make_failed_run(runs_root, "run-a", "Trait bound `Foo: Clone` is not satisfied")
+    make_failed_run(runs_root, "run-b", "Trait bound `Bar: Debug` is not satisfied")
+
+    runner = CliRunner()
+    first = runner.invoke(
+        app,
+        [
+            "optimize",
+            "propose",
+            "--profile",
+            "java_to_rust",
+            "--project",
+            "voidsector",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+    second = runner.invoke(
+        app,
+        [
+            "optimize",
+            "propose",
+            "--profile",
+            "java_to_rust",
+            "--project",
+            "voidsector",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert second.stdout.strip() == first.stdout.strip()
+    candidate_dirs = [path for path in candidates_root.iterdir() if path.is_dir()]
+    assert len(candidate_dirs) == 1
+
+
 def test_optimize_propose_uses_command_generator_for_code_patch_candidates(
     tmp_path: Path,
 ) -> None:
@@ -849,6 +912,98 @@ def test_builtin_architecture_recommendation_proposal_templates_retrieval(
     assert effective_config["retrieval"] == {
         "top_k": 12,
         "rerank_k": 24,
+    }
+
+
+def test_pack_driven_workflow_architecture_recommendation_uses_primitive_templates(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {"workflow": "workflow", "overrides": {}},
+    )
+    write_json(
+        config_root / "primitives" / "web_scrape.json",
+        {
+            "primitive_id": "web_scrape",
+            "kind": "browser_interaction",
+            "proposal_templates": [
+                {
+                    "template_id": "web_scrape/fast_path",
+                    "title": "Fast path",
+                    "hypothesis": "Reduce wait time on stable pages",
+                    "knobs": {
+                        "timeout_ms": 5000,
+                        "wait_strategy": "domcontentloaded",
+                    },
+                    "expected_signals": {
+                        "fingerprints": {"scrape.mode": "fast"}
+                    },
+                    "tags": ["latency"],
+                },
+                {
+                    "template_id": "web_scrape/hardening",
+                    "title": "Hardening",
+                    "hypothesis": "Increase resilience on unstable pages",
+                    "knobs": {
+                        "timeout_ms": 9000,
+                        "retry_limit": 3,
+                    },
+                    "expected_signals": {
+                        "probes": {"scrape.retry_count": {"max": 3}}
+                    },
+                    "tags": ["stability"],
+                },
+            ],
+        },
+    )
+
+    candidate_id = propose_candidate_from_architecture_recommendation(
+        config_root=config_root,
+        candidates_root=candidates_root,
+        profile_name="workflow",
+        project_name="workflow_demo",
+        source_run_ids=["run-workflow"],
+        architecture_recommendation={
+            "focus": "workflow",
+            "primitive_id": "web_scrape",
+            "variant_type": "method_family",
+            "proposal_strategy": "explore_workflow_method_family",
+            "hypothesis": "improve workflow hot path",
+            "gap_signals": ["hot_path_success_rate"],
+            "metric_thresholds": {
+                "hot_path_success_rate": 0.9,
+                "fallback_rate": 0.15,
+            },
+        },
+    )
+
+    proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    effective_config = json.loads(
+        (candidates_root / candidate_id / "effective_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert proposal["strategy"] == "explore_workflow_method_family"
+    assert proposal["expected_signals"] == {
+        "fingerprints": {"scrape.mode": "fast"}
+    }
+    assert "web_scrape" in proposal["tags"]
+    assert proposal["selected_template_id"] == "web_scrape/fast_path"
+    assert effective_config["workflow"]["primitives"]["web_scrape"] == {
+        "timeout_ms": 5000,
+        "wait_strategy": "domcontentloaded",
     }
 
 

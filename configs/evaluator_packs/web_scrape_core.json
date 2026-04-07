@@ -1,0 +1,23 @@
+{
+  "pack_id": "web_scrape/core",
+  "version": "v1",
+  "supported_primitives": [
+    "web_scrape"
+  ],
+  "command": [
+    "python",
+    "scripts/eval_web_scrape.py"
+  ],
+  "artifact_requirements": [
+    "page.html",
+    "extracted.json"
+  ],
+  "emits_metrics": [
+    "success_rate",
+    "latency_ms"
+  ],
+  "emits_probes": [
+    "scrape.navigation_depth",
+    "scrape.retry_count"
+  ]
+}

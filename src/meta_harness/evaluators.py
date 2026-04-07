@@ -110,6 +110,9 @@ class CommandEvaluator(Evaluator):
         correctness: dict[str, Any] = {}
         cost: dict[str, Any] = {}
         human_collaboration: dict[str, Any] = {}
+        capability_scores: dict[str, Any] = {}
+        workflow_scores: dict[str, Any] = {}
+        probes: dict[str, Any] = {}
         composite_adjustment = 0.0
 
         for config in configs:
@@ -132,6 +135,9 @@ class CommandEvaluator(Evaluator):
             correctness.update(payload.get("correctness", {}))
             cost.update(payload.get("cost", {}))
             human_collaboration.update(payload.get("human_collaboration", {}))
+            capability_scores.update(payload.get("capability_scores", {}))
+            workflow_scores.update(payload.get("workflow_scores", {}))
+            probes.update(payload.get("probes", {}))
             composite_adjustment += float(payload.get("composite_adjustment", 0.0))
 
         return {
@@ -144,6 +150,9 @@ class CommandEvaluator(Evaluator):
             "architecture": architecture,
             "retrieval": retrieval,
             "human_collaboration": human_collaboration,
+            "capability_scores": capability_scores,
+            "workflow_scores": workflow_scores,
+            "probes": probes,
             "composite_adjustment": composite_adjustment,
         }
 

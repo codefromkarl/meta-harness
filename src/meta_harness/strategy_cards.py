@@ -108,6 +108,12 @@ def evaluate_strategy_card_compatibility(
         "strategy_id": card.strategy_id,
         "title": card.title,
         "category": card.category,
+        **({"primitive_id": card.primitive_id} if card.primitive_id else {}),
+        **(
+            {"capability_metadata": dict(card.capability_metadata)}
+            if isinstance(card.capability_metadata, dict) and card.capability_metadata
+            else {}
+        ),
         "group": card.group,
         "priority": int(card.priority),
         "status": status,
@@ -173,23 +179,35 @@ def strategy_card_to_benchmark_variant(card: StrategyCard) -> dict[str, Any]:
             f"strategy card '{card.strategy_id}' is not executable and cannot be benchmarked"
         )
 
+    strategy_metadata: dict[str, Any] = {
+        "source": card.source,
+        "category": card.category,
+        "change_type": card.change_type,
+        "compatibility": card.compatibility,
+        "expected_benefits": card.expected_benefits,
+        "expected_costs": card.expected_costs,
+        "risk_notes": card.risk_notes,
+    }
+    if card.primitive_id:
+        strategy_metadata["primitive_id"] = card.primitive_id
+    if isinstance(card.capability_metadata, dict) and card.capability_metadata:
+        strategy_metadata["capability_metadata"] = dict(card.capability_metadata)
+
     variant: dict[str, Any] = {
         "name": card.variant_name or _default_variant_name(card.strategy_id),
         "variant_type": card.variant_type or _default_variant_type(card.change_type),
         "hypothesis": card.hypothesis or card.title,
         "implementation_id": card.implementation_id or card.strategy_id,
         "tags": _dedupe_tags(
-            ["external-strategy", card.category, card.change_type, *card.tags]
+            [
+                "external-strategy",
+                card.category,
+                card.change_type,
+                card.primitive_id,
+                *card.tags,
+            ]
         ),
-        "strategy_metadata": {
-            "source": card.source,
-            "category": card.category,
-            "change_type": card.change_type,
-            "compatibility": card.compatibility,
-            "expected_benefits": card.expected_benefits,
-            "expected_costs": card.expected_costs,
-            "risk_notes": card.risk_notes,
-        },
+        "strategy_metadata": strategy_metadata,
     }
     if card.config_patch is not None:
         variant["config_patch"] = card.config_patch
@@ -325,6 +343,7 @@ def create_candidate_from_strategy_card(
         code_patch_path=payload["code_patch_path"],
         notes=payload["notes"],
         proposal=payload["proposal"],
+        reuse_existing=True,
     )
 
 

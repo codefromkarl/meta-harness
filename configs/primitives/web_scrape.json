@@ -1,0 +1,81 @@
+{
+  "primitive_id": "web_scrape",
+  "version": "v1",
+  "kind": "browser_interaction",
+  "description": "Fetch web pages and extract structured data for downstream workflow steps.",
+  "metric_schema": [
+    {
+      "name": "success_rate",
+      "kind": "float",
+      "higher_is_better": true,
+      "required": true
+    },
+    {
+      "name": "latency_ms",
+      "kind": "int",
+      "higher_is_better": false,
+      "required": false
+    }
+  ],
+  "probe_schema": {
+    "fingerprints": [
+      "scrape.mode"
+    ],
+    "probes": [
+      "scrape.navigation_depth",
+      "scrape.retry_count"
+    ]
+  },
+  "default_knobs": {
+    "timeout_ms": 8000,
+    "retry_limit": 2
+  },
+  "default_scenarios": [
+    {
+      "id": "static_page",
+      "weight": 1.0
+    },
+    {
+      "id": "dynamic_page",
+      "weight": 1.2
+    }
+  ],
+  "proposal_templates": [
+    {
+      "template_id": "web_scrape/fast_path",
+      "title": "Fast Path",
+      "hypothesis": "Reduce wait time on stable pages to improve hot-path latency.",
+      "knobs": {
+        "timeout_ms": 5000,
+        "wait_strategy": "domcontentloaded"
+      },
+      "expected_signals": {
+        "fingerprints": {
+          "scrape.mode": "fast"
+        }
+      },
+      "tags": [
+        "latency"
+      ]
+    },
+    {
+      "template_id": "web_scrape/hardening",
+      "title": "Hardening",
+      "hypothesis": "Increase resilience on unstable pages by allowing controlled retries.",
+      "knobs": {
+        "timeout_ms": 9000,
+        "retry_limit": 3
+      },
+      "expected_signals": {
+        "probes": {
+          "scrape.retry_count": {
+            "max": 3
+          }
+        }
+      },
+      "tags": [
+        "stability"
+      ]
+    }
+  ]
+}
