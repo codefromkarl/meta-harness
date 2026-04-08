@@ -192,6 +192,28 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 result["errors"].append(
                     f"iterations/{iteration_id}/iteration.json iteration_id mismatch"
                 )
+        benchmark_summary_path = iteration_dir / "benchmark_summary.json"
+        if benchmark_summary_path.exists():
+            benchmark_summary = _load_json_object(
+                benchmark_summary_path,
+                result,
+                name=f"iterations/{iteration_id}/benchmark_summary.json",
+            )
+            if benchmark_summary is not None:
+                evaluation = benchmark_summary.get("evaluation")
+                if isinstance(evaluation, dict):
+                    executor = evaluation.get("executor")
+                    benchmark_skipped = bool(evaluation.get("benchmark_skipped"))
+                    executor_status = (
+                        str(executor.get("status"))
+                        if isinstance(executor, dict) and executor.get("status") is not None
+                        else ""
+                    )
+                    if benchmark_skipped or executor_status == "validation_failed":
+                        if not isinstance(evaluation.get("validation"), dict):
+                            result["errors"].append(
+                                f"iterations/{iteration_id}/benchmark_summary.json missing validation payload"
+                            )
     result["iteration_ids"] = normalized_ids
     return result
 

@@ -677,3 +677,59 @@ def test_artifact_contract_validator_reports_missing_required_files(tmp_path: Pa
     assert result["ok"] is False
     assert result["artifact_kind"] == "proposal"
     assert result["missing"] == ["proposal_evaluation.json"]
+
+
+def test_loop_contract_validator_requires_validation_payload_when_benchmark_is_skipped(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-validation")
+    iteration_dir = loop_dir / "iterations" / "loop-validation-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-validation",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "validation failed",
+                "iterations": [{"iteration_id": "loop-validation-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-validation-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-validation-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {
+            "evaluation": {
+                "executor": {"kind": "benchmark", "status": "validation_failed"},
+                "benchmark_skipped": True,
+            }
+        },
+        "experience_summary.json": {"iteration_id": "loop-validation-0001"},
+        "next_round_context.json": {"experience_summary_path": "experience_summary.json"},
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "benchmark_summary.json missing validation payload" in error
+        for error in result["errors"]
+    )
