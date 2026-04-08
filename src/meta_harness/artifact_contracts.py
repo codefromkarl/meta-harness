@@ -231,12 +231,18 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 name=f"iterations/{iteration_id}/next_round_context.json",
             )
             if next_round_context is not None:
-                if validation_summary_path.exists() and not next_round_context.get(
-                    "validation_summary_path"
-                ):
-                    result["errors"].append(
-                        f"iterations/{iteration_id}/next_round_context.json missing validation_summary_path"
+                if validation_summary_path.exists():
+                    linked_validation_summary_path = next_round_context.get(
+                        "validation_summary_path"
                     )
+                    if not linked_validation_summary_path:
+                        result["errors"].append(
+                            f"iterations/{iteration_id}/next_round_context.json missing validation_summary_path"
+                        )
+                    elif str(linked_validation_summary_path) != str(validation_summary_path):
+                        result["errors"].append(
+                            f"iterations/{iteration_id}/next_round_context.json validation_summary_path does not point to validation_summary.json"
+                        )
         if validation_summary is not None and benchmark_summary_path.exists():
             benchmark_summary = _load_json_object(
                 benchmark_summary_path,
