@@ -605,13 +605,28 @@ def _run_validation_command(
     resolved_workdir = Path(str(workdir or ".")).expanduser()
     if not resolved_workdir.is_absolute() and workspace_root is not None:
         resolved_workdir = workspace_root / resolved_workdir
-    completed = subprocess.run(
-        [str(item) for item in command],
-        cwd=resolved_workdir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [str(item) for item in command],
+            cwd=resolved_workdir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return {
+            "status": "failed",
+            "reason": str(exc),
+            "candidate_id": candidate_id,
+            "validation_artifact": {
+                "kind": "lightweight",
+                "status": "failed",
+                "command": [str(item) for item in command],
+                "workdir": str(resolved_workdir),
+                "error": str(exc),
+                "task_set_path": str(request.task_set_path),
+            },
+        }
     status = "passed" if completed.returncode == 0 else "failed"
     reason = (
         ""
