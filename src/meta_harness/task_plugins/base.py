@@ -226,7 +226,7 @@ class BaseTaskPlugin(ABC):
         selected_evaluators = [str(item) for item in evaluators if str(item)]
         if not selected_evaluators:
             selected_evaluators = list(self.default_evaluators)
-        return {
+        plan = {
             "plugin_id": self.plugin_id,
             "objective": objective,
             "mode": "benchmark",
@@ -235,6 +235,14 @@ class BaseTaskPlugin(ABC):
             "stopping_policy": "max_iterations_or_plateau",
             "notes": self._evaluation_plan_notes(objective, effective_config, selected_evaluators),
         }
+        if isinstance(evaluation_config, dict):
+            validation_command = evaluation_config.get("validation_command")
+            if isinstance(validation_command, list):
+                plan["validation_command"] = [str(item) for item in validation_command]
+            validation_workdir = evaluation_config.get("validation_workdir")
+            if validation_workdir is not None:
+                plan["validation_workdir"] = str(validation_workdir)
+        return plan
 
     def build_experience_query(
         self,

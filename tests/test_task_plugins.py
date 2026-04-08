@@ -81,6 +81,46 @@ def test_extraction_task_plugin_surfaces_required_fields_and_schema_hints(
     assert "field completeness" in " ".join(plan["notes"]).lower()
 
 
+def test_base_task_plugin_build_evaluation_plan_preserves_validation_gate_config(
+    tmp_path: Path,
+) -> None:
+    task_set_path = tmp_path / "task_set.json"
+    write_json(task_set_path, {"tasks": []})
+
+    plugin = ExtractionTaskPlugin()
+    objective = plugin.assemble_objective(
+        profile_name="base",
+        project_name="demo",
+        task_set_path=task_set_path,
+        effective_config={
+            "evaluation": {
+                "evaluators": ["basic"],
+                "validation_command": ["python", "-m", "pytest", "-q", "tests/test_smoke.py"],
+                "validation_workdir": ".",
+            }
+        },
+    )
+    plan = plugin.build_evaluation_plan(
+        objective=objective,
+        effective_config={
+            "evaluation": {
+                "evaluators": ["basic"],
+                "validation_command": ["python", "-m", "pytest", "-q", "tests/test_smoke.py"],
+                "validation_workdir": ".",
+            }
+        },
+    )
+
+    assert plan["validation_command"] == [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_smoke.py",
+    ]
+    assert plan["validation_workdir"] == "."
+
+
 def test_classification_task_plugin_surfaces_label_space_and_ambiguity(
     tmp_path: Path,
 ) -> None:
