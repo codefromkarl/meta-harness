@@ -67,6 +67,8 @@ def test_evaluator_run_schema_defaults() -> None:
     assert payload["run_id"] == "run123"
     assert payload["status"] == "completed"
     assert payload["report"] == {"composite": 1.0}
+    assert payload["profiling"] == {}
+    assert payload["trace_artifact"] is None
     assert payload["started_at"] is not None
 
 

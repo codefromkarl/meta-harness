@@ -148,6 +148,9 @@ runs/<run_id>/tasks/<task_id>/
 - `score_report.json` 是最终聚合结果
 - evaluator 文件表示单 evaluator 输出
 - evaluator 文件允许是 report 兼容格式
+- 若使用 envelope，建议附带 `trace_grade`、`profiling`、`trace_artifact`、`artifact_refs`
+- `trace_artifact` 指向 `runs/<run_id>/evaluators/<name>.trace.jsonl` 时，文件应保存 evaluator 自身的 trace/profiling 事件
+- profiling 至少应能表达 evaluator 输入规模或执行明细，例如 trace event 数、task 数、command evaluator 子命令耗时
 
 Phase 1 计划：
 

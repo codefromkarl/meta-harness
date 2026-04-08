@@ -241,6 +241,8 @@ v1 最小字段：
 说明：
 
 - 当前代码里 evaluator artifact 已收口为 envelope，并兼容读取历史裸 report
+- envelope 允许附带 `trace_grade`、`profiling`、`trace_artifact`、`artifact_refs`
+- 当前最小 tracing / profiling 形态为：`runs/<run_id>/evaluators/<name>.trace.jsonl` + envelope 中的 profiling 摘要
 - v1 服务层继续兼容新旧两种磁盘格式
 
 ## 4.2 ScoreReport

@@ -64,7 +64,7 @@
 - [x] 收口 `TraceEventV2`
 - [x] 增加 trace grading 最小实现
 - [x] 统一 `EvaluatorRun` artifact envelope
-- [ ] 增加 evaluator 自身 tracing / profiling
+- [x] 增加 evaluator 自身 tracing / profiling
 
 ### B2. Gate 与 Promotion
 

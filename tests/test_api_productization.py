@@ -517,6 +517,46 @@ def test_api_returns_task_and_evaluator_detail_endpoints(tmp_path: Path) -> None
     assert evaluator_response.json()["report"]["composite"] == 0.4
 
 
+def test_api_returns_evaluator_profiling_and_trace_artifact_for_envelope(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "run-evaluator-envelope"
+    evaluators_dir = run_dir / "evaluators"
+    evaluators_dir.mkdir(parents=True)
+
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run-evaluator-envelope", "profile": "base", "project": "demo"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    write_json(
+        evaluators_dir / "basic.json",
+        {
+            "evaluator_name": "basic",
+            "run_id": "run-evaluator-envelope",
+            "status": "completed",
+            "report": {"composite": 0.9},
+            "trace_grade": {"event_count": 2},
+            "profiling": {"input_task_count": 1, "input_trace_event_count": 4},
+            "trace_artifact": "runs/run-evaluator-envelope/evaluators/basic.trace.jsonl",
+            "artifact_refs": ["runs/run-evaluator-envelope/evaluators/basic.json"],
+        },
+    )
+
+    client = TestClient(create_app())
+    evaluator_response = client.get(
+        "/runs/run-evaluator-envelope/evaluators/basic",
+        params={"runs_root": str(runs_root)},
+    )
+
+    assert evaluator_response.status_code == 200
+    payload = evaluator_response.json()
+    assert payload["name"] == "basic"
+    assert payload["profiling"]["input_task_count"] == 1
+    assert payload["profiling"]["input_trace_event_count"] == 4
+    assert payload["trace_artifact"] == "runs/run-evaluator-envelope/evaluators/basic.trace.jsonl"
+    assert payload["trace_grade"]["event_count"] == 2
+
+
 def test_api_evaluates_gate_policy_by_policy_id(tmp_path: Path) -> None:
     config_root = tmp_path / "configs"
     policy_path = config_root / "gate_policies" / "promotion.json"

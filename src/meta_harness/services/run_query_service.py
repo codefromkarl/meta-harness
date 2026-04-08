@@ -145,6 +145,8 @@ def _normalize_evaluator_payload(
             "duration_ms": payload.get("duration_ms"),
             "artifact_refs": payload.get("artifact_refs", []),
             "trace_grade": payload.get("trace_grade", {}),
+            "profiling": payload.get("profiling", {}),
+            "trace_artifact": payload.get("trace_artifact"),
             "report": payload.get("report", {}),
         }
     return {
@@ -157,6 +159,8 @@ def _normalize_evaluator_payload(
         "duration_ms": None,
         "artifact_refs": [],
         "trace_grade": {},
+        "profiling": {},
+        "trace_artifact": None,
         "report": payload,
     }
 

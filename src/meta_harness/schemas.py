@@ -77,6 +77,8 @@ class EvaluatorRun(BaseModel):
     status: Literal["queued", "running", "completed", "failed"]
     report: dict[str, Any] = Field(default_factory=dict)
     trace_grade: dict[str, Any] = Field(default_factory=dict)
+    profiling: dict[str, Any] = Field(default_factory=dict)
+    trace_artifact: str | None = None
     duration_ms: int | None = None
     artifact_refs: list[str] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

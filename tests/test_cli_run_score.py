@@ -153,6 +153,25 @@ def test_run_score_writes_trace_grade_into_evaluator_envelope(tmp_path: Path) ->
     )
     assert evaluator_report["trace_grade"]["event_count"] == 3
     assert evaluator_report["trace_grade"]["failure_count"] == 0
+    assert evaluator_report["profiling"]["input_task_count"] == 1
+    assert evaluator_report["profiling"]["input_trace_event_count"] == 3
+    assert evaluator_report["profiling"]["completed_trace_event_count"] == 3
+    assert evaluator_report["trace_artifact"] == "runs/run-trace/evaluators/basic.trace.jsonl"
+
+    trace_events = [
+        json.loads(line)
+        for line in (run_dir / "evaluators" / "basic.trace.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert [event["status"] for event in trace_events] == ["started", "completed"]
+    assert trace_events[0]["phase"] == "evaluator.basic"
+    assert trace_events[0]["session_ref"] == "session://run-trace/evaluators/basic"
+    assert trace_events[1]["artifact_refs"] == [
+        "runs/run-trace/evaluators/basic.json",
+        "runs/run-trace/score_report.json",
+    ]
 
 
 def test_run_score_with_command_evaluator_updates_report(tmp_path: Path) -> None:
@@ -218,9 +237,18 @@ def test_run_score_with_command_evaluator_updates_report(tmp_path: Path) -> None
     assert result.stdout.strip() == "0.5"
 
     score_report = json.loads((run_dir / "score_report.json").read_text(encoding="utf-8"))
+    evaluator_report = json.loads(
+        (run_dir / "evaluators" / "command.json").read_text(encoding="utf-8")
+    )
     assert score_report["architecture"]["layering_violations"] == 2
     assert score_report["cost"]["command_evaluators_run"] == 1
     assert score_report["composite"] == 0.5
+    assert evaluator_report["profiling"]["command_count"] == 1
+    assert evaluator_report["profiling"]["commands"][0]["name"] == "arch-check"
+    assert evaluator_report["profiling"]["commands"][0]["returncode"] == 0
+    assert evaluator_report["profiling"]["commands"][0]["artifact_dir"].endswith(
+        "runs/run456/evaluators/command_artifacts/01-arch-check"
+    )
 
 
 def test_run_score_can_select_specific_evaluator(tmp_path: Path) -> None:
