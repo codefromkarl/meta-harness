@@ -335,6 +335,7 @@ Smoke 复用约定：
 - 若存在 lightweight validation gate，则 `next_round_context.json` 还应包含 `validation_summary_path`
 - `validation_summary_path` 必须指向当前 iteration 目录下的 `validation_summary.json`，可使用相对路径或绝对路径
 - `next_round_context.json.artifacts` 应保留 loop 在写 iteration 工件前就已经注入的 artifact link，例如 `proposer_context`
+- `artifacts.proposer_context` 必须指向当前 iteration 目录下的 `proposer_context/`，可使用相对路径或绝对路径
 ```
 
 要求：
