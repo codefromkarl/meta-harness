@@ -597,7 +597,14 @@ def _run_validation_command(
     workdir = evaluation_plan.get("validation_workdir")
     if workdir is None and isinstance(workspace, dict):
         workdir = workspace.get("source_repo")
+    workspace_root = (
+        Path(str(workspace.get("source_repo"))).expanduser()
+        if isinstance(workspace, dict) and workspace.get("source_repo") is not None
+        else None
+    )
     resolved_workdir = Path(str(workdir or ".")).expanduser()
+    if not resolved_workdir.is_absolute() and workspace_root is not None:
+        resolved_workdir = workspace_root / resolved_workdir
     completed = subprocess.run(
         [str(item) for item in command],
         cwd=resolved_workdir,

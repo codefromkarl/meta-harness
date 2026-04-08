@@ -880,6 +880,63 @@ def test_execute_evaluation_plan_skips_benchmark_when_lightweight_validation_fai
     assert result["benchmark_skipped"] is True
 
 
+def test_execute_evaluation_plan_resolves_relative_validation_workdir_from_workspace(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    repo_root = tmp_path / "repo"
+    validation_dir = repo_root / "checks"
+    validation_dir.mkdir(parents=True, exist_ok=True)
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        return {
+            "variants": [
+                {
+                    "name": "candidate",
+                    "candidate_id": "cand-validated",
+                    "run_id": "run-validated",
+                    "score": {"composite": 1.0},
+                    "stability": {"composite_range": 0.0, "composite_stddev": 0.0},
+                    "ranking_score": 1.0,
+                }
+            ]
+        }
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={
+            "kind": "benchmark",
+            "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+            "validation_command": ["python", "-c", "print('ok')"],
+            "validation_workdir": "checks",
+        },
+        benchmark_fn=_benchmark,
+        shadow_run_fn=lambda **_: "run-shadow",
+        candidate_id="cand-validated",
+        effective_config={"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+    )
+
+    assert result["validation"]["status"] == "passed"
+    assert result["validation"]["validation_artifact"]["workdir"] == str(validation_dir)
+
+
 def test_run_search_loop_ranks_multiple_proposers_and_records_rejected_proposals(
     tmp_path: Path,
 ) -> None:
