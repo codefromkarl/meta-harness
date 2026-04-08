@@ -215,6 +215,21 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                             result["errors"].append(
                                 f"iterations/{iteration_id}/benchmark_summary.json missing validation payload"
                             )
+        next_round_context_path = iteration_dir / "next_round_context.json"
+        if next_round_context_path.exists():
+            next_round_context = _load_json_object(
+                next_round_context_path,
+                result,
+                name=f"iterations/{iteration_id}/next_round_context.json",
+            )
+            if next_round_context is not None:
+                validation_summary_path = iteration_dir / "validation_summary.json"
+                if validation_summary_path.exists() and not next_round_context.get(
+                    "validation_summary_path"
+                ):
+                    result["errors"].append(
+                        f"iterations/{iteration_id}/next_round_context.json missing validation_summary_path"
+                    )
     result["iteration_ids"] = normalized_ids
     return result
 
