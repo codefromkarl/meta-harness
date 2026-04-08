@@ -1058,6 +1058,62 @@ def test_loop_contract_validator_accepts_relative_validation_summary_path(
     assert result["ok"] is True
 
 
+def test_loop_contract_validator_requires_experience_summary_path_to_match_artifact(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-experience-path-match")
+    iteration_dir = loop_dir / "iterations" / "loop-experience-path-match-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-experience-path-match",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "done",
+                "iterations": [{"iteration_id": "loop-experience-path-match-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-experience-path-match-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-experience-path-match-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {"evaluation": {"validation": {"status": "passed"}}},
+        "validation_summary.json": {"status": "passed"},
+        "experience_summary.json": {"iteration_id": "loop-experience-path-match-0001"},
+        "next_round_context.json": {
+            "experience_summary_path": "wrong-experience-summary.json",
+            "validation_summary_path": "validation_summary.json",
+        },
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "next_round_context.json experience_summary_path does not point to experience_summary.json"
+        in error
+        for error in result["errors"]
+    )
+
+
 def test_loop_contract_validator_requires_benchmark_validation_when_validation_summary_is_non_empty(
     tmp_path: Path,
 ) -> None:

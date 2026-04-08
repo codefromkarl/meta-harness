@@ -231,6 +231,29 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 name=f"iterations/{iteration_id}/next_round_context.json",
             )
             if next_round_context is not None:
+                experience_summary_path = iteration_dir / "experience_summary.json"
+                linked_experience_summary_path = next_round_context.get(
+                    "experience_summary_path"
+                )
+                if not linked_experience_summary_path:
+                    result["errors"].append(
+                        f"iterations/{iteration_id}/next_round_context.json missing experience_summary_path"
+                    )
+                else:
+                    linked_path = Path(str(linked_experience_summary_path))
+                    candidate_paths = {str(linked_path)}
+                    if not linked_path.is_absolute():
+                        candidate_paths.add(str((iteration_dir / linked_path).resolve()))
+                    else:
+                        candidate_paths.add(str(linked_path.resolve()))
+                    expected_paths = {
+                        str(experience_summary_path),
+                        str(experience_summary_path.resolve()),
+                    }
+                    if candidate_paths.isdisjoint(expected_paths):
+                        result["errors"].append(
+                            f"iterations/{iteration_id}/next_round_context.json experience_summary_path does not point to experience_summary.json"
+                        )
                 if validation_summary_path.exists():
                     linked_validation_summary_path = next_round_context.get(
                         "validation_summary_path"
