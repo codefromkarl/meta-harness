@@ -406,6 +406,7 @@ reports/loops/<loop_id>/
 - 每轮迭代目录必须存在 `iteration.json`
 - `proposal_input.json`、`proposal_output.json`、`selected_candidate.json`、`benchmark_summary.json`、`next_round_context.json` 应作为最小闭环工件输出
 - `proposer_context/manifest.json` 必须存在，用于给 proposer 暴露经过筛选的历史文件系统视图
+- 若 `benchmark_summary.json.evaluation.benchmark_skipped=true` 或 `executor.status=validation_failed`，则必须同时保留 `evaluation.validation`
 
 规则：
 
