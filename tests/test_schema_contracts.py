@@ -995,7 +995,10 @@ def test_loop_contract_validator_accepts_absolute_validation_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": str(validation_summary_path.resolve()),
-            "artifacts": {"proposer_context": "proposer_context"},
+            "artifacts": {
+                "proposer_context": "proposer_context",
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1049,7 +1052,10 @@ def test_loop_contract_validator_accepts_relative_validation_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
-            "artifacts": {"proposer_context": "proposer_context"},
+            "artifacts": {
+                "proposer_context": "proposer_context",
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1157,7 +1163,10 @@ def test_loop_contract_validator_accepts_relative_experience_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
-            "artifacts": {"proposer_context": "proposer_context"},
+            "artifacts": {
+                "proposer_context": "proposer_context",
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1210,7 +1219,10 @@ def test_loop_contract_validator_accepts_absolute_experience_summary_path(
         "next_round_context.json": {
             "experience_summary_path": str(experience_summary_path.resolve()),
             "validation_summary_path": "validation_summary.json",
-            "artifacts": {"proposer_context": "proposer_context"},
+            "artifacts": {
+                "proposer_context": "proposer_context",
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1337,6 +1349,62 @@ def test_loop_contract_validator_requires_next_round_artifacts_object(
     )
 
 
+def test_loop_contract_validator_requires_validation_summary_artifact_link(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-validation-artifact-link")
+    iteration_dir = loop_dir / "iterations" / "loop-missing-validation-artifact-link-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-missing-validation-artifact-link",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "done",
+                "iterations": [{"iteration_id": "loop-missing-validation-artifact-link-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-missing-validation-artifact-link-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-missing-validation-artifact-link-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {"evaluation": {"validation": {"status": "passed"}}},
+        "validation_summary.json": {"status": "passed"},
+        "experience_summary.json": {"iteration_id": "loop-missing-validation-artifact-link-0001"},
+        "next_round_context.json": {
+            "experience_summary_path": "experience_summary.json",
+            "validation_summary_path": "validation_summary.json",
+            "artifacts": {"proposer_context": "proposer_context"},
+        },
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "next_round_context.json missing artifacts.validation_summary_json" in error
+        for error in result["errors"]
+    )
+
+
 def test_loop_contract_validator_accepts_relative_proposer_context_link(
     tmp_path: Path,
 ) -> None:
@@ -1376,7 +1444,10 @@ def test_loop_contract_validator_accepts_relative_proposer_context_link(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
-            "artifacts": {"proposer_context": "proposer_context"},
+            "artifacts": {
+                "proposer_context": "proposer_context",
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1428,7 +1499,10 @@ def test_loop_contract_validator_accepts_absolute_proposer_context_link(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
-            "artifacts": {"proposer_context": str(proposer_context_dir.resolve())},
+            "artifacts": {
+                "proposer_context": str(proposer_context_dir.resolve()),
+                "validation_summary_json": "validation_summary.json",
+            },
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
