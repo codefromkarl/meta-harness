@@ -983,6 +983,56 @@ def test_execute_evaluation_plan_treats_missing_validation_workdir_as_failed_val
     assert "missing-dir" in result["validation"]["reason"]
 
 
+def test_execute_evaluation_plan_short_circuits_on_nonzero_validation_command(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        raise AssertionError("benchmark should be skipped on failed validation command")
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={
+            "kind": "benchmark",
+            "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+            "validation_command": [
+                "python",
+                "-c",
+                "import sys; print('validation boom', file=sys.stderr); raise SystemExit(3)",
+            ],
+        },
+        benchmark_fn=_benchmark,
+        shadow_run_fn=lambda **_: "run-shadow",
+        candidate_id="cand-invalid",
+        effective_config={"runtime": {"workspace": {"source_repo": str(repo_root)}}},
+    )
+
+    assert result["executor"]["status"] == "validation_failed"
+    assert result["benchmark_skipped"] is True
+    assert result["validation"]["validation_artifact"]["exit_code"] == 3
+    assert "validation boom" in result["validation"]["reason"]
+
+
 def test_run_search_loop_ranks_multiple_proposers_and_records_rejected_proposals(
     tmp_path: Path,
 ) -> None:
