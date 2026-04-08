@@ -370,6 +370,11 @@ V2 仍然复用现有 `basic + command evaluator` 机制，但 command evaluator
 }
 ```
 
+规则：
+
+- 若 `validation_workdir` 是相对路径，应相对于 `runtime.workspace.source_repo` 解析
+- 若未提供 `validation_workdir`，默认使用 `runtime.workspace.source_repo`；若也不存在，则回退到当前工作目录
+
 最小输出：
 
 ```json
