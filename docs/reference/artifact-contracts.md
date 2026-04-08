@@ -331,6 +331,7 @@ Smoke 复用约定：
 - 每轮 iteration 目录必须至少包含 `iteration.json`
 - `experience_summary.json` 作为下一轮经验写回摘要存在
 - `next_round_context.json` 必须包含 `experience_summary_path`
+- `experience_summary_path` 必须指向当前 iteration 目录下的 `experience_summary.json`，可使用相对路径或绝对路径
 - 若存在 lightweight validation gate，则 `next_round_context.json` 还应包含 `validation_summary_path`
 - `validation_summary_path` 必须指向当前 iteration 目录下的 `validation_summary.json`，可使用相对路径或绝对路径
 ```
