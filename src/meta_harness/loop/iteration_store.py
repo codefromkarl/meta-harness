@@ -105,6 +105,7 @@ def write_iteration_artifact(loop_dir: Path, artifact: LoopIterationArtifact) ->
                 "stop_decision": artifact.stop_decision.model_dump() if artifact.stop_decision else None,
                 "artifacts": artifact.artifacts,
                 "experience_summary_path": str(paths["experience_summary_json"]),
+                "validation_summary_path": str(paths["validation_summary_json"]),
             },
             indent=2,
         ),

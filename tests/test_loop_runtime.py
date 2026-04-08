@@ -291,6 +291,12 @@ def test_iteration_store_writes_loop_contract_files(tmp_path: Path) -> None:
         paths["validation_summary_json"].read_text(encoding="utf-8")
     )
     assert validation_payload["status"] == "passed"
+    next_round_context = json.loads(
+        paths["next_round_context_json"].read_text(encoding="utf-8")
+    )
+    assert next_round_context["validation_summary_path"] == str(
+        paths["validation_summary_json"]
+    )
     loop_payload = json.loads(loop_summary_path.read_text(encoding="utf-8"))
     assert loop_payload["loop_id"] == "loop-1"
     assert loop_payload["iteration_count"] == 1
