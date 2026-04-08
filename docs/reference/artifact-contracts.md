@@ -25,6 +25,7 @@
 
 - `datasets/`
 - `exports/`
+- `reports/exports/`
 
 ## 3. Candidate Contract
 
@@ -243,6 +244,20 @@ reports/benchmark-suites/<suite_id>.json
 - `reports/benchmarks/<experiment_id>.json` 必须包含 `experiment/baseline/best_variant/variants/report_summary`
 - 每个 variant 至少要有 `name/candidate_id/run_id/run_ids/score/delta_from_baseline`
 - suite report 必须包含 `suite/results`
+
+## 13.1 Export Artifact Contract
+
+当前集成导出结果可落盘为：
+
+```text
+reports/exports/integrations/<integration_name>/<run_id>.json
+```
+
+要求：
+
+- artifact 至少包含 `run_id/destination/format/integration`
+- `integration` 至少包含 `status_code/attempt_count/ok/failure_kind/retryable/retry_exhausted/error`
+- job 触发的 integration export，其 `result_ref.path` 应优先指向这份 artifact，而不是瞬时返回值
 
 ## 14. Loop Contract
 

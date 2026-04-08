@@ -444,6 +444,8 @@
 - `retry_exhausted`
 - `error`
 
+若提供 `reports_root`，服务还应把结果持久化到 `reports/exports/integrations/<integration>/<run_id>.json`。
+
 ### POST /runs/{run_id}/archive
 
 归档单个 run。

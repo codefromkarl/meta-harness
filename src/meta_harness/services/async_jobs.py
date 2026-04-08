@@ -126,12 +126,13 @@ def submit_run_export_trace_job(
                 config_root=config_root,
                 integration_name=integration_name,
                 export_format=export_format,
+                reports_root=reports_root,
             )
         ),
         result_ref_builder=lambda data: {
             "target_type": "trace_export",
             "target_id": run_id,
-            "path": data.get("output_path"),
+            "path": data.get("artifact_path") or data.get("output_path"),
         },
         parent_job_id=parent_job_id,
         attempt=attempt,

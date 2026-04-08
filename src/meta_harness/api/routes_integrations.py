@@ -44,6 +44,7 @@ def register_integration_routes(app: FastAPI) -> None:
         run_id: str,
         config_root: str = "configs",
         runs_root: str = "runs",
+        reports_root: str = "reports",
         format: str | None = None,
     ) -> dict:
         import meta_harness.api.app as root_api
@@ -56,6 +57,7 @@ def register_integration_routes(app: FastAPI) -> None:
                     config_root=Path(config_root),
                     integration_name=name,
                     export_format=format,
+                    reports_root=Path(reports_root),
                 )
             )
         except (FileNotFoundError, ValueError, ConnectionError) as exc:

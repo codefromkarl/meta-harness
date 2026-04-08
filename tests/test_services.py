@@ -23,6 +23,7 @@ from meta_harness.services.benchmark_service import (
 )
 from meta_harness.services.dataset_service import extract_failure_dataset_to_path
 from meta_harness.services.export_service import export_run_trace_to_path
+from meta_harness.services.export_service import export_run_trace_to_integration
 from meta_harness.services.integration_catalog_service import export_payload_to_integration
 from meta_harness.services.job_service import (
     cancel_job_record,
@@ -422,6 +423,68 @@ def test_export_service_writes_selected_trace_format(tmp_path: Path) -> None:
     assert payload["output_path"] == str(output_path)
     written = json.loads(output_path.read_text(encoding="utf-8"))
     assert written["project_name"] == "meta-harness/demo"
+
+
+def test_export_service_persists_integration_export_artifact_when_reports_root_provided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    config_root = tmp_path / "configs"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_run_trace_to_integration(
+        runs_root=runs_root,
+        run_id="run123",
+        config_root=config_root,
+        integration_name="otlp",
+        export_format="otel-json",
+        reports_root=reports_root,
+    )
+
+    assert payload["destination"] == "integration"
+    assert payload["artifact_path"] == "reports/exports/integrations/otlp/run123.json"
+    artifact_path = tmp_path / payload["artifact_path"]
+    assert artifact_path.exists()
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["run_id"] == "run123"
+    assert artifact["integration"]["name"] == "otlp"
+    assert artifact["integration"]["status_code"] == 200
 
 
 def test_integration_catalog_service_retries_retryable_status_codes(
@@ -1490,6 +1553,65 @@ def test_async_job_facade_submits_run_export_trace_job(tmp_path: Path) -> None:
     assert payload["data"]["output_path"] == str(output_path)
     assert payload["job"]["job_type"] == "run.export_trace"
     assert payload["job"]["result_ref"]["target_type"] == "trace_export"
+
+
+def test_async_job_facade_submits_run_export_trace_job_to_integration_with_result_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_root = tmp_path / "reports"
+    runs_root = tmp_path / "runs"
+    config_root = tmp_path / "configs"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = submit_run_export_trace_job(
+        reports_root=reports_root,
+        runs_root=runs_root,
+        run_id="run123",
+        export_format="otel-json",
+        destination="integration",
+        config_root=config_root,
+        integration_name="otlp",
+    )
+
+    assert payload["ok"] is True
+    assert payload["data"]["artifact_path"] == "reports/exports/integrations/otlp/run123.json"
+    assert payload["job"]["result_ref"]["target_type"] == "trace_export"
+    assert payload["job"]["result_ref"]["path"] == "reports/exports/integrations/otlp/run123.json"
+    assert (tmp_path / payload["job"]["result_ref"]["path"]).exists()
 
 
 def test_async_job_facade_submits_dataset_extract_job(tmp_path: Path) -> None:

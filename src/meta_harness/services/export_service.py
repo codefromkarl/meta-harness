@@ -54,6 +54,39 @@ def export_run_trace_to_path(
     }
 
 
+def _integration_export_artifact_path(
+    *,
+    reports_root: Path,
+    integration_name: str,
+    run_id: str,
+) -> Path:
+    return reports_root / "exports" / "integrations" / integration_name / f"{run_id}.json"
+
+
+def _persist_integration_export_artifact(
+    *,
+    reports_root: Path,
+    run_id: str,
+    export_format: str,
+    integration_name: str,
+    integration_payload: dict[str, Any],
+) -> str:
+    artifact_path = _integration_export_artifact_path(
+        reports_root=reports_root,
+        integration_name=integration_name,
+        run_id=run_id,
+    )
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact = {
+        "run_id": run_id,
+        "destination": "integration",
+        "format": export_format,
+        "integration": integration_payload,
+    }
+    artifact_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    return str(artifact_path.relative_to(reports_root.parent))
+
+
 def export_run_trace_to_integration(
     *,
     runs_root: Path,
@@ -61,6 +94,7 @@ def export_run_trace_to_integration(
     config_root: Path,
     integration_name: str,
     export_format: str = "otel-json",
+    reports_root: Path | None = None,
 ) -> dict[str, Any]:
     payload = build_trace_export_payload(
         runs_root=runs_root,
@@ -77,6 +111,17 @@ def export_run_trace_to_integration(
         "destination": "integration",
         "format": export_format,
         "integration": integration,
+        "artifact_path": (
+            _persist_integration_export_artifact(
+                reports_root=reports_root,
+                run_id=run_id,
+                export_format=export_format,
+                integration_name=integration_name,
+                integration_payload=integration,
+            )
+            if reports_root is not None
+            else None
+        ),
     }
 
 
@@ -87,6 +132,7 @@ def export_run_to_named_integration(
     config_root: Path,
     integration_name: str,
     export_format: str | None = None,
+    reports_root: Path | None = None,
 ) -> dict[str, Any]:
     config = load_integration_config(config_root, integration_name)
     resolved_format = export_format or infer_integration_export_format(config)
@@ -96,4 +142,5 @@ def export_run_to_named_integration(
         config_root=config_root,
         integration_name=integration_name,
         export_format=resolved_format,
+        reports_root=reports_root,
     )

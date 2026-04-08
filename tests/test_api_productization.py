@@ -1111,3 +1111,63 @@ def test_api_can_export_run_directly_via_vendor_integration_kind(tmp_path: Path)
         assert langfuse_request["path"] == "/langfuse/ingest"
         assert "trace" in langfuse_request["body"]
         assert "observations" in langfuse_request["body"]
+
+
+def test_api_persists_direct_integration_export_artifact_when_reports_root_given(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    config_root = tmp_path / "configs"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/integrations/otlp/export-runs/run123",
+        params={
+            "config_root": str(config_root),
+            "runs_root": str(runs_root),
+            "reports_root": str(reports_root),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["data"]["artifact_path"] == "reports/exports/integrations/otlp/run123.json"
+    assert (tmp_path / payload["data"]["artifact_path"]).exists()
