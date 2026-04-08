@@ -1,0 +1,231 @@
+{
+  "experiment": "demo_public_budget_headroom",
+  "baseline": "baseline",
+  "analysis_mode": "parameter",
+  "report": {
+    "purpose": "public demo snapshot for release smoke and reproducibility",
+    "expected_best_variant": "budget_plus_two"
+  },
+  "scenarios": [],
+  "task_scenarios": [
+    {
+      "task_id": "broken-review-step",
+      "scenario": "demo_failure_case",
+      "difficulty": "easy",
+      "weight": 1.0
+    }
+  ],
+  "best_by_quality": "budget_plus_two",
+  "best_by_stability": "budget_plus_two",
+  "best_variant": "budget_plus_two",
+  "stability_policy": {
+    "min_repeats": 1,
+    "max_composite_range": 1.0,
+    "high_score_threshold": 0.0,
+    "range_weight": 1.0,
+    "stddev_weight": 1.0
+  },
+  "repeat_count": 1,
+  "focus": "all",
+  "variants": [
+    {
+      "name": "baseline",
+      "variant_type": "parameter",
+      "candidate_id": "dfa44af48e0e",
+      "binding_id": null,
+      "run_id": "7ca34b3fb4e5",
+      "run_ids": [
+        "7ca34b3fb4e5"
+      ],
+      "score": {
+        "correctness": {
+          "task_count": 1,
+          "completed_steps": 0
+        },
+        "cost": {
+          "trace_event_count": 1,
+          "command_evaluators_run": 1
+        },
+        "maintainability": {
+          "budget_headroom": 0.6
+        },
+        "architecture": {},
+        "retrieval": {},
+        "human_collaboration": {
+          "manual_interventions": 0
+        },
+        "capability_scores": {},
+        "workflow_scores": {},
+        "probes": {
+          "demo_public.max_turns": 6
+        },
+        "composite": 0.6
+      },
+      "stability": {
+        "repeat_count": 1,
+        "composite_min": 0.6,
+        "composite_max": 0.6,
+        "composite_range": 0.0,
+        "composite_stddev": 0.0
+      },
+      "mechanism": {
+        "validation": {
+          "expected_signals_satisfied": true,
+          "missing_signals": [],
+          "mismatch_signals": []
+        }
+      },
+      "capability_gains": {
+        "demo_failure_case": {
+          "task_count": 1,
+          "repeat_count": 1,
+          "success_rate": 0.0,
+          "weighted_success_rate": 0.0,
+          "delta_from_baseline": {
+            "success_rate": 0.0,
+            "weighted_success_rate": 0.0
+          }
+        }
+      },
+      "stability_policy": {
+        "min_repeats": 1,
+        "max_composite_range": 1.0,
+        "high_score_threshold": 0.0,
+        "range_weight": 1.0,
+        "stddev_weight": 1.0
+      },
+      "hypothesis": "Keep the demo_public default budget.max_turns=6",
+      "delta_from_baseline": {
+        "composite": 0.0,
+        "maintainability": {
+          "budget_headroom": 0.0
+        },
+        "cost": {
+          "command_evaluators_run": 0.0,
+          "trace_event_count": 0.0
+        }
+      },
+      "stability_assessment": {
+        "meets_min_repeats": true,
+        "is_stable": true,
+        "is_high_score_unstable": false
+      },
+      "focus_tiebreak_bonus": 0.0,
+      "ranking_score": 0.6,
+      "ranking_penalty": 0.0,
+      "stability_penalty": 0.0,
+      "cost_penalty": 0.0
+    },
+    {
+      "name": "budget_plus_two",
+      "variant_type": "parameter",
+      "candidate_id": "05c60dc1b1b7",
+      "binding_id": null,
+      "run_id": "8cad9e25a6b2",
+      "run_ids": [
+        "8cad9e25a6b2"
+      ],
+      "score": {
+        "correctness": {
+          "task_count": 1,
+          "completed_steps": 0
+        },
+        "cost": {
+          "trace_event_count": 1,
+          "command_evaluators_run": 1
+        },
+        "maintainability": {
+          "budget_headroom": 0.8
+        },
+        "architecture": {},
+        "retrieval": {},
+        "human_collaboration": {
+          "manual_interventions": 0
+        },
+        "capability_scores": {},
+        "workflow_scores": {},
+        "probes": {
+          "demo_public.max_turns": 8
+        },
+        "composite": 0.8
+      },
+      "stability": {
+        "repeat_count": 1,
+        "composite_min": 0.8,
+        "composite_max": 0.8,
+        "composite_range": 0.0,
+        "composite_stddev": 0.0
+      },
+      "mechanism": {
+        "validation": {
+          "expected_signals_satisfied": true,
+          "missing_signals": [],
+          "mismatch_signals": []
+        }
+      },
+      "capability_gains": {
+        "demo_failure_case": {
+          "task_count": 1,
+          "repeat_count": 1,
+          "success_rate": 0.0,
+          "weighted_success_rate": 0.0,
+          "delta_from_baseline": {
+            "success_rate": 0.0,
+            "weighted_success_rate": 0.0
+          }
+        }
+      },
+      "stability_policy": {
+        "min_repeats": 1,
+        "max_composite_range": 1.0,
+        "high_score_threshold": 0.0,
+        "range_weight": 1.0,
+        "stddev_weight": 1.0
+      },
+      "hypothesis": "Mirror the heuristic loop proposal that increases budget.max_turns by two turns",
+      "delta_from_baseline": {
+        "composite": 0.2,
+        "maintainability": {
+          "budget_headroom": 0.2
+        },
+        "cost": {
+          "command_evaluators_run": 0.0,
+          "trace_event_count": 0.0
+        }
+      },
+      "stability_assessment": {
+        "meets_min_repeats": true,
+        "is_stable": true,
+        "is_high_score_unstable": false
+      },
+      "focus_tiebreak_bonus": 0.0,
+      "ranking_score": 0.8,
+      "ranking_penalty": 0.0,
+      "stability_penalty": 0.0,
+      "cost_penalty": 0.0
+    }
+  ],
+  "report_summary": {
+    "best_variant": "budget_plus_two",
+    "best_by_quality": "budget_plus_two",
+    "best_by_stability": "budget_plus_two",
+    "top_variants_by_ranking_score": [
+      {
+        "name": "budget_plus_two",
+        "ranking_score": 0.8,
+        "ranking_penalty": 0.0,
+        "stability_penalty": 0.0,
+        "cost_penalty": 0.0,
+        "composite": 0.8
+      },
+      {
+        "name": "baseline",
+        "ranking_score": 0.6,
+        "ranking_penalty": 0.0,
+        "stability_penalty": 0.0,
+        "cost_penalty": 0.0,
+        "composite": 0.6
+      }
+    ]
+  }
+}

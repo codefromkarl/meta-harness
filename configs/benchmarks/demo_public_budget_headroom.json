@@ -1,0 +1,23 @@
+{
+  "experiment": "demo_public_budget_headroom",
+  "baseline": "baseline",
+  "report": {
+    "purpose": "public demo snapshot for release smoke and reproducibility",
+    "expected_best_variant": "budget_plus_two"
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "hypothesis": "Keep the demo_public default budget.max_turns=6"
+    },
+    {
+      "name": "budget_plus_two",
+      "hypothesis": "Mirror the heuristic loop proposal that increases budget.max_turns by two turns",
+      "config_patch": {
+        "budget": {
+          "max_turns": 8
+        }
+      }
+    }
+  ]
+}

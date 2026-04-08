@@ -1,0 +1,24 @@
+{
+  "description": "Public demo workflow for the open-source release path",
+  "defaults": {
+    "budget": {
+      "max_turns": 6
+    },
+    "evaluation": {
+      "evaluators": [
+        "basic",
+        "command"
+      ],
+      "command_evaluators": [
+        {
+          "name": "demo-public-budget",
+          "command": [
+            "python",
+            "-c",
+            "import json; from pathlib import Path; payload=json.loads(Path('effective_config.json').read_text(encoding='utf-8')); budget=payload.get('budget') or {}; max_turns=int(budget.get('max_turns', 0) or 0); adjustment=round(max_turns / 10, 3); print(json.dumps({'maintainability': {'budget_headroom': adjustment}, 'probes': {'demo_public.max_turns': max_turns}, 'composite_adjustment': adjustment}))"
+          ]
+        }
+      ]
+    }
+  }
+}
