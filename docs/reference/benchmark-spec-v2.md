@@ -375,6 +375,7 @@ V2 仍然复用现有 `basic + command evaluator` 机制，但 command evaluator
 - 若 `validation_workdir` 是相对路径，应相对于 `runtime.workspace.source_repo` 解析
 - 若未提供 `validation_workdir`，默认使用 `runtime.workspace.source_repo`；若也不存在，则回退到当前工作目录
 - 若 `validation_workdir` 不存在或无法进入，应产出 `validation_failed`，并 short-circuit 当前 benchmark，而不是让 loop 直接崩溃
+- 若未配置 `validation_command`，loop 应保持既有行为，直接进入 benchmark
 
 最小输出：
 
