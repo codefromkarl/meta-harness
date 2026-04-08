@@ -226,6 +226,7 @@ reports/loops/<loop_id>/
     proposal_output.json
     selected_candidate.json
     benchmark_summary.json
+    validation_summary.json
     next_round_context.json
     iteration_summary.json
 ```
