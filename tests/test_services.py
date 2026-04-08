@@ -461,6 +461,37 @@ def test_integration_catalog_service_retries_retryable_status_codes(
     assert len(attempts) == 2
 
 
+def test_integration_catalog_service_classifies_non_retryable_http_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(
+        config_root / "integrations" / "phoenix.json",
+        {
+            "name": "phoenix",
+            "kind": "phoenix",
+            "endpoint": "http://127.0.0.1:6006/phoenix/traces",
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 422, "body": {"error": "invalid payload"}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_payload_to_integration(
+        config_root=config_root,
+        name="phoenix",
+        payload={"run_id": "run123"},
+    )
+
+    assert payload["status_code"] == 422
+    assert payload["ok"] is False
+    assert payload["failure_kind"] == "remote_rejected"
+    assert payload["retryable"] is False
+    assert payload["retry_exhausted"] is False
+
+
 def test_catalog_service_builds_run_and_candidate_index_payloads(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     candidates_root = tmp_path / "candidates"

@@ -434,6 +434,15 @@
 - `format`: `otel-json|phoenix-json|langfuse-json`
 - `destination`: `download|integration`
 
+当 `destination=integration` 时，返回的 integration 结果应至少包含：
+
+- `status_code`
+- `attempt_count`
+- `ok`
+- `failure_kind`
+- `retryable`
+- `retry_exhausted`
+
 ### POST /runs/{run_id}/archive
 
 归档单个 run。

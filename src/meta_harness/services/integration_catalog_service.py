@@ -94,6 +94,25 @@ def _retryable_status_codes(config: dict[str, Any]) -> set[int]:
     return {408, 429, 500, 502, 503, 504}
 
 
+def _classify_transport_result(
+    *,
+    status_code: int,
+    attempt_count: int,
+    retryable_statuses: set[int],
+) -> dict[str, Any]:
+    ok = 200 <= status_code < 300
+    retryable = status_code in retryable_statuses
+    failure_kind: str | None = None
+    if not ok:
+        failure_kind = "retryable_http" if retryable else "remote_rejected"
+    return {
+        "ok": ok,
+        "failure_kind": failure_kind,
+        "retryable": retryable,
+        "retry_exhausted": bool(not ok and retryable and attempt_count >= 1),
+    }
+
+
 def _post_json_with_retry(
     *,
     url: str,
@@ -152,7 +171,11 @@ def test_integration(config_root: Path, name: str) -> dict[str, Any]:
         "name": name,
         "status_code": result["status_code"],
         "attempt_count": result.get("attempt_count", 1),
-        "ok": 200 <= int(result["status_code"]) < 300,
+        **_classify_transport_result(
+            status_code=int(result["status_code"]),
+            attempt_count=int(result.get("attempt_count", 1)),
+            retryable_statuses=_retryable_status_codes(config),
+        ),
         "response": result.get("body"),
     }
 
@@ -182,5 +205,10 @@ def export_payload_to_integration(
         "endpoint": endpoint,
         "status_code": result["status_code"],
         "attempt_count": result.get("attempt_count", 1),
+        **_classify_transport_result(
+            status_code=int(result["status_code"]),
+            attempt_count=int(result.get("attempt_count", 1)),
+            retryable_statuses=_retryable_status_codes(config),
+        ),
         "response": result.get("body"),
     }

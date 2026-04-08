@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import meta_harness.services.integration_catalog_service as integration_catalog_service_module
 import meta_harness.services.job_runtime_service as job_runtime_module
 from meta_harness.api.app import create_app
 
@@ -466,6 +467,68 @@ def test_api_exports_trace_to_configured_integration(tmp_path: Path) -> None:
         assert export_request["path"] == "/v1/traces"
         assert export_request["headers"]["Authorization"] == "Bearer integration-token"
         assert export_request["body"]["run_id"] == "run123"
+
+
+def test_api_returns_classified_integration_export_failure(tmp_path: Path, monkeypatch) -> None:
+    runs_root = tmp_path / "runs"
+    config_root = tmp_path / "configs"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+            "retry_limit": 1,
+            "retry_backoff_sec": 0.0,
+        },
+    )
+
+    attempts = {"count": 0}
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        attempts["count"] += 1
+        return {"status_code": 503, "body": {"accepted": False}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/integrations/otlp/export-runs/run123",
+        params={"config_root": str(config_root), "runs_root": str(runs_root)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["data"]["integration"]["ok"] is False
+    assert payload["data"]["integration"]["failure_kind"] == "retryable_http"
+    assert payload["data"]["integration"]["retryable"] is True
+    assert payload["data"]["integration"]["retry_exhausted"] is True
+    assert payload["data"]["integration"]["attempt_count"] == 2
+    assert attempts["count"] == 2
 
 
 def test_api_returns_task_and_evaluator_detail_endpoints(tmp_path: Path) -> None:
