@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -446,6 +447,7 @@ def _evaluate_candidate(
     candidate_id: str,
     candidate_record: dict[str, Any],
     effective_config: dict[str, Any],
+    validation_fn: Any = None,
 ) -> dict[str, Any]:
     return execute_evaluation_plan(
         request=request,
@@ -454,6 +456,7 @@ def _evaluate_candidate(
         shadow_run_fn=shadow_run_fn,
         candidate_id=candidate_id,
         effective_config=effective_config,
+        validation_fn=validation_fn,
     )
 
 
@@ -465,6 +468,7 @@ def execute_evaluation_plan(
     shadow_run_fn: Any,
     candidate_id: str,
     effective_config: dict[str, Any],
+    validation_fn: Any = None,
 ) -> dict[str, Any]:
     evaluation_mode = str(evaluation_plan.get("kind") or request.evaluation_mode)
     if evaluation_mode == "benchmark":
@@ -476,6 +480,31 @@ def execute_evaluation_plan(
                 "executor": {"kind": "benchmark", "status": "invalid"},
                 "error": "benchmark_spec_path missing from evaluation plan",
             }
+        validation_payload = _maybe_run_lightweight_validation(
+            request=request,
+            evaluation_plan=evaluation_plan,
+            candidate_id=candidate_id,
+            effective_config=effective_config,
+            validation_fn=validation_fn,
+        )
+        if validation_payload is not None:
+            validation_status = str(validation_payload.get("status", "")).strip().lower()
+            if validation_status and validation_status not in {"passed", "pass", "ok", "completed"}:
+                return {
+                    "mode": "benchmark",
+                    "candidate_id": candidate_id,
+                    "executor": {
+                        "kind": "benchmark",
+                        "status": "validation_failed",
+                        "spec_path": str(spec_path),
+                    },
+                    "validation": validation_payload,
+                    "benchmark_skipped": True,
+                    "error": str(
+                        validation_payload.get("reason")
+                        or "lightweight validation failed"
+                    ),
+                }
         benchmark_payload = benchmark_fn(
             config_root=request.config_root,
             runs_root=request.runs_root,
@@ -496,6 +525,7 @@ def execute_evaluation_plan(
                 "spec_path": str(spec_path),
             },
             "score": benchmark_payload.get("variants", [{}])[0].get("score", {}),
+            "validation": validation_payload,
             "benchmark": benchmark_payload,
             **benchmark_payload,
         }
@@ -521,6 +551,81 @@ def execute_evaluation_plan(
         "run_id": run_id,
         "score": score,
         "run_record": run_record,
+    }
+
+
+def _maybe_run_lightweight_validation(
+    *,
+    request: SearchLoopRequest,
+    evaluation_plan: dict[str, Any],
+    candidate_id: str,
+    effective_config: dict[str, Any],
+    validation_fn: Any = None,
+) -> dict[str, Any] | None:
+    validation_command = evaluation_plan.get("validation_command")
+    if validation_fn is None and not isinstance(validation_command, list):
+        return None
+    runner = validation_fn or _run_validation_command
+    return runner(
+        request=request,
+        evaluation_plan=evaluation_plan,
+        candidate_id=candidate_id,
+        effective_config=effective_config,
+    )
+
+
+def _run_validation_command(
+    *,
+    request: SearchLoopRequest,
+    evaluation_plan: dict[str, Any],
+    candidate_id: str,
+    effective_config: dict[str, Any],
+) -> dict[str, Any]:
+    command = evaluation_plan.get("validation_command")
+    if not isinstance(command, list) or not command:
+        return {
+            "status": "skipped",
+            "reason": "validation_command missing",
+            "validation_artifact": {
+                "kind": "lightweight",
+                "status": "skipped",
+            },
+        }
+    runtime = effective_config.get("runtime") if isinstance(effective_config, dict) else {}
+    workspace = runtime.get("workspace") if isinstance(runtime, dict) else {}
+    workdir = evaluation_plan.get("validation_workdir")
+    if workdir is None and isinstance(workspace, dict):
+        workdir = workspace.get("source_repo")
+    resolved_workdir = Path(str(workdir or ".")).expanduser()
+    completed = subprocess.run(
+        [str(item) for item in command],
+        cwd=resolved_workdir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    status = "passed" if completed.returncode == 0 else "failed"
+    reason = (
+        ""
+        if completed.returncode == 0
+        else completed.stderr.strip()
+        or completed.stdout.strip()
+        or f"exit {completed.returncode}"
+    )
+    return {
+        "status": status,
+        "reason": reason,
+        "candidate_id": candidate_id,
+        "validation_artifact": {
+            "kind": "lightweight",
+            "status": status,
+            "command": [str(item) for item in command],
+            "workdir": str(resolved_workdir),
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "task_set_path": str(request.task_set_path),
+        },
     }
 
 

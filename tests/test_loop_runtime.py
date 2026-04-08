@@ -731,6 +731,135 @@ def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(
     assert proposer_context["manifest_path"] == str(manifest_path.resolve())
 
 
+def test_execute_evaluation_plan_runs_lightweight_validation_before_benchmark(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+
+    calls: list[str] = []
+
+    def _validation(**_: object) -> dict[str, object]:
+        calls.append("validation")
+        return {
+            "status": "passed",
+            "validation_artifact": {
+                "kind": "lightweight",
+                "status": "passed",
+            },
+        }
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        calls.append("benchmark")
+        return {
+            "variants": [
+                {
+                    "name": "candidate",
+                    "candidate_id": "cand-validated",
+                    "run_id": "run-validated",
+                    "score": {"composite": 1.0},
+                    "stability": {"composite_range": 0.0, "composite_stddev": 0.0},
+                    "ranking_score": 1.0,
+                }
+            ]
+        }
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={
+            "kind": "benchmark",
+            "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+            "validation_command": ["python", "-c", "print('ok')"],
+        },
+        benchmark_fn=_benchmark,
+        shadow_run_fn=lambda **_: "run-shadow",
+        candidate_id="cand-validated",
+        effective_config={},
+        validation_fn=_validation,
+    )
+
+    assert calls == ["validation", "benchmark"]
+    assert result["executor"]["status"] == "completed"
+    assert result["validation"]["status"] == "passed"
+    assert result["validation"]["validation_artifact"]["kind"] == "lightweight"
+
+
+def test_execute_evaluation_plan_skips_benchmark_when_lightweight_validation_fails(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+
+    calls: list[str] = []
+
+    def _validation(**_: object) -> dict[str, object]:
+        calls.append("validation")
+        return {
+            "status": "failed",
+            "reason": "smoke import failed",
+            "validation_artifact": {
+                "kind": "lightweight",
+                "status": "failed",
+                "reason": "smoke import failed",
+            },
+        }
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        calls.append("benchmark")
+        return {
+            "variants": []
+        }
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={
+            "kind": "benchmark",
+            "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+            "validation_command": ["python", "-c", "print('ok')"],
+        },
+        benchmark_fn=_benchmark,
+        shadow_run_fn=lambda **_: "run-shadow",
+        candidate_id="cand-invalid",
+        effective_config={},
+        validation_fn=_validation,
+    )
+
+    assert calls == ["validation"]
+    assert result["executor"]["status"] == "validation_failed"
+    assert result["validation"]["reason"] == "smoke import failed"
+    assert result["benchmark_skipped"] is True
+
+
 def test_run_search_loop_ranks_multiple_proposers_and_records_rejected_proposals(
     tmp_path: Path,
 ) -> None:
