@@ -250,7 +250,13 @@ def test_iteration_store_writes_loop_contract_files(tmp_path: Path) -> None:
             iteration_index=1,
             max_iterations=3,
         ),
-        evaluation={"variants": []},
+        evaluation={
+            "variants": [],
+            "validation": {
+                "status": "passed",
+                "validation_artifact": {"kind": "lightweight", "status": "passed"},
+            },
+        },
         summary={"score": 1.0},
     )
 
@@ -278,8 +284,13 @@ def test_iteration_store_writes_loop_contract_files(tmp_path: Path) -> None:
     assert paths["proposal_output_json"].exists()
     assert paths["selected_candidate_json"].exists()
     assert paths["benchmark_summary_json"].exists()
+    assert paths["validation_summary_json"].exists()
     assert paths["next_round_context_json"].exists()
     assert paths["experience_summary_json"].exists()
+    validation_payload = json.loads(
+        paths["validation_summary_json"].read_text(encoding="utf-8")
+    )
+    assert validation_payload["status"] == "passed"
     loop_payload = json.loads(loop_summary_path.read_text(encoding="utf-8"))
     assert loop_payload["loop_id"] == "loop-1"
     assert loop_payload["iteration_count"] == 1

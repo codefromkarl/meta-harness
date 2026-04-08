@@ -34,6 +34,7 @@ def write_iteration_artifact(loop_dir: Path, artifact: LoopIterationArtifact) ->
         "proposal_output_json": iteration_dir / "proposal_output.json",
         "selected_candidate_json": iteration_dir / "selected_candidate.json",
         "benchmark_summary_json": iteration_dir / "benchmark_summary.json",
+        "validation_summary_json": iteration_dir / "validation_summary.json",
         "experience_summary_json": iteration_dir / "experience_summary.json",
         "next_round_context_json": iteration_dir / "next_round_context.json",
     }
@@ -82,6 +83,15 @@ def write_iteration_artifact(loop_dir: Path, artifact: LoopIterationArtifact) ->
             },
             indent=2,
         ),
+        encoding="utf-8",
+    )
+    validation_summary = {}
+    if isinstance(artifact.evaluation, dict):
+        validation_payload = artifact.evaluation.get("validation")
+        if isinstance(validation_payload, dict):
+            validation_summary = validation_payload
+    paths["validation_summary_json"].write_text(
+        json.dumps(validation_summary, indent=2),
         encoding="utf-8",
     )
     experience_summary = build_experience_summary(artifact)
