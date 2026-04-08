@@ -730,6 +730,11 @@ def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(
     bundle_dir = loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposer_context"
     manifest_path = bundle_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    next_round_context = json.loads(
+        (loop_dir / "iterations" / f"{summary.loop_id}-0001" / "next_round_context.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert manifest["objective_path"] == str((bundle_dir / "objective.json").resolve())
     assert manifest["experience_path"] == str((bundle_dir / "experience.json").resolve())
@@ -749,6 +754,7 @@ def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(
     proposer_context = proposer.constraints["proposer_context"]
     assert proposer_context["bundle_dir"] == str(bundle_dir.resolve())
     assert proposer_context["manifest_path"] == str(manifest_path.resolve())
+    assert next_round_context["artifacts"]["proposer_context"] == str(bundle_dir.resolve())
 
 
 def test_execute_evaluation_plan_runs_lightweight_validation_before_benchmark(

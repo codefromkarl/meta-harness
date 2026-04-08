@@ -371,7 +371,10 @@ def run_search_loop(
             proposal_evaluation=proposal_evaluation,
         )
         paths = write_iteration_artifact(loop_dir, artifact)
-        artifact.artifacts = {name: str(path) for name, path in paths.items()}
+        artifact.artifacts = {
+            **artifact.artifacts,
+            **{name: str(path) for name, path in paths.items()},
+        }
         paths["iteration_json"].write_text(
             json.dumps(artifact.model_dump(), indent=2),
             encoding="utf-8",
