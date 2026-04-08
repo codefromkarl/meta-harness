@@ -231,6 +231,11 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 name=f"iterations/{iteration_id}/next_round_context.json",
             )
             if next_round_context is not None:
+                artifacts_payload = next_round_context.get("artifacts")
+                if not isinstance(artifacts_payload, dict):
+                    result["errors"].append(
+                        f"iterations/{iteration_id}/next_round_context.json missing artifacts object"
+                    )
                 experience_summary_path = iteration_dir / "experience_summary.json"
                 linked_experience_summary_path = next_round_context.get(
                     "experience_summary_path"
@@ -276,6 +281,32 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                         if candidate_paths.isdisjoint(expected_paths):
                             result["errors"].append(
                                 f"iterations/{iteration_id}/next_round_context.json validation_summary_path does not point to validation_summary.json"
+                            )
+                proposer_context_manifest = iteration_dir / "proposer_context" / "manifest.json"
+                if proposer_context_manifest.exists():
+                    proposer_context_path = (
+                        artifacts_payload.get("proposer_context")
+                        if isinstance(artifacts_payload, dict)
+                        else None
+                    )
+                    if not proposer_context_path:
+                        result["errors"].append(
+                            f"iterations/{iteration_id}/next_round_context.json missing artifacts.proposer_context"
+                        )
+                    else:
+                        linked_path = Path(str(proposer_context_path))
+                        candidate_paths = {str(linked_path)}
+                        if not linked_path.is_absolute():
+                            candidate_paths.add(str((iteration_dir / linked_path).resolve()))
+                        else:
+                            candidate_paths.add(str(linked_path.resolve()))
+                        expected_paths = {
+                            str((iteration_dir / "proposer_context")),
+                            str((iteration_dir / "proposer_context").resolve()),
+                        }
+                        if candidate_paths.isdisjoint(expected_paths):
+                            result["errors"].append(
+                                f"iterations/{iteration_id}/next_round_context.json artifacts.proposer_context does not point to proposer_context"
                             )
         if validation_summary is not None and benchmark_summary_path.exists():
             benchmark_summary = _load_json_object(
