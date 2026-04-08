@@ -628,6 +628,9 @@ def test_run_search_loop_writes_next_round_experience_summary_and_plugin_overrid
     assert experience_summary["focus"] == "retrieval"
     assert experience_summary["representative_failures"][0]["family"] == "retrieval timeout"
     assert validation_summary == {}
+    assert next_round_context["artifacts"]["benchmark_summary_json"] == str(
+        loop_dir / "iterations" / f"{summary.loop_id}-0001" / "benchmark_summary.json"
+    )
     assert next_round_context["artifacts"]["experience_summary_json"] == str(
         experience_summary_path
     )
