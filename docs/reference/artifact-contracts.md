@@ -413,6 +413,7 @@ reports/loops/<loop_id>/
 - `validation_summary.json` 应作为 validation gate 的独立工件输出
 - `proposer_context/manifest.json` 必须存在，用于给 proposer 暴露经过筛选的历史文件系统视图
 - 若 `benchmark_summary.json.evaluation.benchmark_skipped=true` 或 `executor.status=validation_failed`，则必须同时保留 `evaluation.validation`
+- 若 `validation_summary.json` 非空，则 `benchmark_summary.json.evaluation.validation` 也必须存在
 - `validation_summary.json` 应与 `benchmark_summary.json.evaluation.validation` 保持一致，避免 gate 信息漂移
 
 规则：
