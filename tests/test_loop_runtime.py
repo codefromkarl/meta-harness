@@ -628,6 +628,9 @@ def test_run_search_loop_writes_next_round_experience_summary_and_plugin_overrid
     assert experience_summary["focus"] == "retrieval"
     assert experience_summary["representative_failures"][0]["family"] == "retrieval timeout"
     assert validation_summary == {}
+    assert next_round_context["artifacts"]["validation_summary_json"] == str(
+        validation_summary_path
+    )
 
 
 def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(
