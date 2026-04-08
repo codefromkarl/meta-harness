@@ -631,6 +631,9 @@ def test_run_search_loop_writes_next_round_experience_summary_and_plugin_overrid
     assert next_round_context["artifacts"]["benchmark_summary_json"] == str(
         loop_dir / "iterations" / f"{summary.loop_id}-0001" / "benchmark_summary.json"
     )
+    assert next_round_context["artifacts"]["selected_candidate_json"] == str(
+        loop_dir / "iterations" / f"{summary.loop_id}-0001" / "selected_candidate.json"
+    )
     assert next_round_context["artifacts"]["experience_summary_json"] == str(
         experience_summary_path
     )
