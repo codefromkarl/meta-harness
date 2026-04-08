@@ -259,6 +259,10 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 if isinstance(evaluation, dict)
                 else None
             )
+            if validation_summary and not isinstance(benchmark_validation, dict):
+                result["errors"].append(
+                    f"iterations/{iteration_id}/benchmark_summary.json missing evaluation.validation for non-empty validation_summary.json"
+                )
             if isinstance(benchmark_validation, dict) and benchmark_validation != validation_summary:
                 result["errors"].append(
                     f"iterations/{iteration_id}/validation_summary.json does not match benchmark_summary.json evaluation.validation"
