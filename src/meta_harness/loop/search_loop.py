@@ -384,6 +384,7 @@ def run_search_loop(
                     else None,
                     "artifacts": artifact.artifacts,
                     "experience_summary_path": str(paths["experience_summary_json"]),
+                    "validation_summary_path": str(paths["validation_summary_json"]),
                 },
                 indent=2,
             ),
