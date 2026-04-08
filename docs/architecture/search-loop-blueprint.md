@@ -96,6 +96,9 @@ Proposer -> candidate proposal
 Candidate Materialization
     |
     v
+Lightweight Validation Gate
+    |
+    v
 Run / Shadow Run / Benchmark
     |
     v
@@ -159,6 +162,7 @@ src/meta_harness/
 - 调用 experience assembler 读取历史
 - 调用 proposer 生成候选
 - 物化 candidate
+- 在 expensive benchmark 前执行 lightweight validation gate
 - 执行 benchmark 或 shadow-run
 - 运行 selection / stopping
 - 写 iteration artifacts
