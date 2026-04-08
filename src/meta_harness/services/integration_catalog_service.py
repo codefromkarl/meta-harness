@@ -96,10 +96,21 @@ def _retryable_status_codes(config: dict[str, Any]) -> set[int]:
 
 def _classify_transport_result(
     *,
-    status_code: int,
+    status_code: int | None,
     attempt_count: int,
     retryable_statuses: set[int],
+    error: str | None = None,
 ) -> dict[str, Any]:
+    if error is not None:
+        return {
+            "ok": False,
+            "failure_kind": "connection_error",
+            "retryable": True,
+            "retry_exhausted": True,
+            "error": error,
+        }
+
+    assert status_code is not None
     ok = 200 <= status_code < 300
     retryable = status_code in retryable_statuses
     failure_kind: str | None = None
@@ -110,6 +121,7 @@ def _classify_transport_result(
         "failure_kind": failure_kind,
         "retryable": retryable,
         "retry_exhausted": bool(not ok and retryable and attempt_count >= 1),
+        "error": None,
     }
 
 
@@ -135,9 +147,14 @@ def _post_json_with_retry(
                 headers=headers,
                 timeout_sec=timeout_sec,
             )
-        except ConnectionError:
+        except ConnectionError as exc:
             if attempt_count > retry_limit:
-                raise
+                return {
+                    "status_code": None,
+                    "body": None,
+                    "attempt_count": attempt_count,
+                    "error": str(exc),
+                }
             if retry_backoff_sec > 0:
                 time.sleep(retry_backoff_sec)
             continue
@@ -172,9 +189,12 @@ def test_integration(config_root: Path, name: str) -> dict[str, Any]:
         "status_code": result["status_code"],
         "attempt_count": result.get("attempt_count", 1),
         **_classify_transport_result(
-            status_code=int(result["status_code"]),
+            status_code=(
+                int(result["status_code"]) if result.get("status_code") is not None else None
+            ),
             attempt_count=int(result.get("attempt_count", 1)),
             retryable_statuses=_retryable_status_codes(config),
+            error=result.get("error"),
         ),
         "response": result.get("body"),
     }
@@ -206,9 +226,12 @@ def export_payload_to_integration(
         "status_code": result["status_code"],
         "attempt_count": result.get("attempt_count", 1),
         **_classify_transport_result(
-            status_code=int(result["status_code"]),
+            status_code=(
+                int(result["status_code"]) if result.get("status_code") is not None else None
+            ),
             attempt_count=int(result.get("attempt_count", 1)),
             retryable_statuses=_retryable_status_codes(config),
+            error=result.get("error"),
         ),
         "response": result.get("body"),
     }

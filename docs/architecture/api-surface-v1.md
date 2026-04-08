@@ -442,6 +442,7 @@
 - `failure_kind`
 - `retryable`
 - `retry_exhausted`
+- `error`
 
 ### POST /runs/{run_id}/archive
 

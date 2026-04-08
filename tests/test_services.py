@@ -492,6 +492,45 @@ def test_integration_catalog_service_classifies_non_retryable_http_failure(
     assert payload["retry_exhausted"] is False
 
 
+def test_integration_catalog_service_classifies_connection_error_after_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+            "retry_limit": 2,
+            "retry_backoff_sec": 0.0,
+        },
+    )
+
+    attempts = {"count": 0}
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        attempts["count"] += 1
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_payload_to_integration(
+        config_root=config_root,
+        name="otlp",
+        payload={"run_id": "run123"},
+    )
+
+    assert payload["status_code"] is None
+    assert payload["ok"] is False
+    assert payload["failure_kind"] == "connection_error"
+    assert payload["retryable"] is True
+    assert payload["retry_exhausted"] is True
+    assert payload["attempt_count"] == 3
+    assert payload["error"] == "connection refused"
+    assert attempts["count"] == 3
+
+
 def test_catalog_service_builds_run_and_candidate_index_payloads(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     candidates_root = tmp_path / "candidates"
