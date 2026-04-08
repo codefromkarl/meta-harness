@@ -7,6 +7,7 @@ from meta_harness.loop.iteration_store import (
     write_iteration_artifact,
     write_loop_summary,
 )
+from meta_harness.loop.proposer_context import prepare_proposer_context
 from meta_harness.loop.schemas import (
     LoopIterationArtifact,
     LoopExperienceSummary,
@@ -36,6 +37,7 @@ __all__ = [
     "assemble_experience_context",
     "decide_stop",
     "loop_root_path",
+    "prepare_proposer_context",
     "run_search_loop",
     "score_from_evaluation_result",
     "select_best_result",

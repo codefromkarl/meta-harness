@@ -75,6 +75,7 @@ class LLMHarnessProposer:
             "objective": objective,
             "experience": experience,
             "proposal_constraints": dict(constraints.get("proposal_constraints") or {}),
+            "proposer_context": dict(constraints.get("proposer_context") or {}),
             "effective_config": effective_config,
             **self.extra_payload,
         }
@@ -183,6 +184,14 @@ class LLMHarnessProposer:
                         "focus": objective.get("focus"),
                         "proposal_constraints": constraints.get("proposal_constraints") or {},
                     },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ),
+                "",
+                "Filesystem Context:",
+                json.dumps(
+                    dict(constraints.get("proposer_context") or {}),
                     ensure_ascii=False,
                     indent=2,
                     sort_keys=True,

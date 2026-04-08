@@ -86,6 +86,7 @@ class CommandProposer:
             "failure_records": experience.get("failure_records", []),
             "objective": objective,
             "experience": experience,
+            "proposer_context": dict(constraints.get("proposer_context") or {}),
             **self.extra_payload,
         }
         generated = run_proposal_command(

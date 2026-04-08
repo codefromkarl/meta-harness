@@ -611,6 +611,9 @@ def test_artifact_contract_validator_accepts_real_loop_proposal_dataset_and_eval
         proposal_evaluation={"selected": True, "proposal_rank": 1},
     )
     write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = loop_dir / "iterations" / "loop-1-0001" / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
     append_iteration_history(loop_dir, iteration)
     write_loop_summary(
         loop_dir,

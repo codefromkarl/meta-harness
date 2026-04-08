@@ -11,10 +11,12 @@ from meta_harness.config_loader import load_effective_config
 from meta_harness.loop.experience import assemble_experience_context
 from meta_harness.loop.iteration_store import (
     append_iteration_history,
+    iteration_path,
     loop_root_path,
     write_iteration_artifact,
     write_loop_summary,
 )
+from meta_harness.loop.proposer_context import prepare_proposer_context
 from meta_harness.loop.schemas import (
     LoopIterationArtifact,
     LoopSummary,
@@ -70,6 +72,9 @@ def run_search_loop(
     score_history: list[float] = []
 
     for iteration_index in range(1, request.max_iterations + 1):
+        iteration_id = f"{loop_id}-{iteration_index:04d}"
+        iteration_dir = iteration_path(loop_dir, iteration_id)
+        iteration_dir.mkdir(parents=True, exist_ok=True)
         plugin_experience_query = _call_optional(
             task_plugin,
             "build_experience_query",
@@ -159,6 +164,15 @@ def run_search_loop(
                 "budget_boundaries": (effective_config.get("budget") if isinstance(effective_config.get("budget"), dict) else {}),
             },
         }
+        proposer_context = prepare_proposer_context(
+            iteration_dir=iteration_dir,
+            objective=objective,
+            experience=experience,
+            runs_root=request.runs_root,
+            candidates_root=request.candidates_root,
+            proposals_root=proposals_root,
+        )
+        proposal_constraints["proposer_context"] = proposer_context
         ranked_proposals = _ranked_proposals(
             proposers=_normalize_proposers(proposer),
             objective=objective,
@@ -334,7 +348,7 @@ def run_search_loop(
             }
 
         artifact = LoopIterationArtifact(
-            iteration_id=f"{loop_id}-{iteration_index:04d}",
+            iteration_id=iteration_id,
             iteration_index=iteration_index,
             objective=objective,
             experience=experience,
@@ -352,7 +366,7 @@ def run_search_loop(
             stop_decision=stop_decision,
             evaluation=evaluation_payload,
             summary=summary,
-            artifacts={},
+            artifacts={"proposer_context": proposer_context["bundle_dir"]},
             proposal_evaluation=proposal_evaluation,
         )
         paths = write_iteration_artifact(loop_dir, artifact)

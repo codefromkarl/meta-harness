@@ -610,6 +610,127 @@ def test_run_search_loop_writes_next_round_experience_summary_and_plugin_overrid
     assert experience_summary["representative_failures"][0]["family"] == "retrieval timeout"
 
 
+def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(
+    tmp_path: Path,
+) -> None:
+    class _Plugin:
+        plugin_id = "test"
+
+        def assemble_objective(self, **_: object) -> dict[str, object]:
+            return {"goal": "improve retrieval diagnostics", "focus": "retrieval"}
+
+        def assemble_experience(self, **_: object) -> dict[str, object]:
+            return {}
+
+        def build_evaluation_plan(self, **_: object) -> dict[str, object]:
+            return {
+                "kind": "benchmark",
+                "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+            }
+
+        def summarize_iteration(self, **_: object) -> dict[str, object]:
+            return {"summary": "ok"}
+
+    class _Proposer:
+        proposer_id = "capture"
+
+        def __init__(self) -> None:
+            self.constraints: dict[str, object] | None = None
+
+        def propose(self, **kwargs: object) -> dict[str, object]:
+            self.constraints = kwargs.get("constraints")
+            return {
+                "proposer_kind": "capture",
+                "proposal": {"strategy": "capture"},
+                "config_patch": {},
+                "notes": "capture",
+            }
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        return {
+            "variants": [
+                {
+                    "name": "candidate",
+                    "candidate_id": "cand-ctx",
+                    "run_id": "run-ctx",
+                    "score": {"composite": 1.0},
+                    "stability": {"composite_range": 0.0, "composite_stddev": 0.0},
+                    "ranking_score": 1.0,
+                }
+            ]
+        }
+
+    (tmp_path / "configs" / "profiles").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "configs" / "projects").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+    (tmp_path / "benchmark.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "configs" / "platform.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "configs" / "profiles" / "base.json").write_text(
+        '{"description":"base","defaults":{}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "configs" / "projects" / "demo.json").write_text(
+        '{"workflow":"base","overrides":{}}',
+        encoding="utf-8",
+    )
+    write_history_run(
+        tmp_path / "runs",
+        "run-retrieval",
+        profile="base",
+        project="demo",
+        created_at="2026-04-08T09:00:00Z",
+        score=0.4,
+        scenario="retrieval",
+        error="retrieval timeout while fetching context",
+    )
+
+    proposer = _Proposer()
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+
+    summary = run_search_loop(
+        request,
+        task_plugin=_Plugin(),
+        proposer=proposer,
+        benchmark_fn=_benchmark,
+    )
+
+    loop_dir = Path(summary.loop_dir)
+    bundle_dir = loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposer_context"
+    manifest_path = bundle_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["objective_path"] == str((bundle_dir / "objective.json").resolve())
+    assert manifest["experience_path"] == str((bundle_dir / "experience.json").resolve())
+    assert manifest["selected_runs"][0]["run_id"] == "run-retrieval"
+    assert (
+        bundle_dir / "selected_runs" / "run-retrieval" / "run_metadata.json"
+    ).exists()
+    assert (
+        bundle_dir
+        / "selected_runs"
+        / "run-retrieval"
+        / "tasks"
+        / "task-a"
+        / "steps.jsonl"
+    ).exists()
+    assert proposer.constraints is not None
+    proposer_context = proposer.constraints["proposer_context"]
+    assert proposer_context["bundle_dir"] == str(bundle_dir.resolve())
+    assert proposer_context["manifest_path"] == str(manifest_path.resolve())
+
+
 def test_run_search_loop_ranks_multiple_proposers_and_records_rejected_proposals(
     tmp_path: Path,
 ) -> None:

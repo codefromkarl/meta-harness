@@ -147,6 +147,10 @@ def test_llm_harness_proposer_builds_prompt_payload_and_returns_generated_patch(
                 "blocked_scopes": ["system_prompt"],
                 "failure_family_priority": ["timeout"],
             },
+            "proposer_context": {
+                "bundle_dir": "/tmp/proposer-context",
+                "manifest_path": "/tmp/proposer-context/manifest.json",
+            },
             "effective_config": {
                 "optimization": {
                     "llm_harness": {
@@ -166,10 +170,12 @@ def test_llm_harness_proposer_builds_prompt_payload_and_returns_generated_patch(
     assert prompt_payload["project"] == "demo"
     assert prompt_payload["proposal_constraints"]["allowed_scopes"] == ["retrieval", "budget"]
     assert prompt_payload["proposal_constraints"]["blocked_scopes"] == ["system_prompt"]
+    assert prompt_payload["proposer_context"]["manifest_path"] == "/tmp/proposer-context/manifest.json"
     assert "improve retrieval robustness" in prompt_payload["user_prompt"]
     assert "run-1" in prompt_payload["user_prompt"]
     assert "cand-best" in prompt_payload["user_prompt"]
     assert "allowed_scopes" in prompt_payload["user_prompt"]
+    assert "/tmp/proposer-context/manifest.json" in prompt_payload["user_prompt"]
     assert payload["proposer_kind"] == "llm_harness"
     assert payload["proposal"]["strategy"] == "llm_harness_patch"
     assert payload["config_patch"] == {"retrieval": {"top_k": 12}}

@@ -171,6 +171,7 @@ def _validate_loop(path: Path) -> dict[str, Any]:
         "benchmark_summary.json",
         "experience_summary.json",
         "next_round_context.json",
+        "proposer_context/manifest.json",
     ]
     for iteration_id in normalized_ids:
         iteration_dir = iterations_dir / iteration_id
