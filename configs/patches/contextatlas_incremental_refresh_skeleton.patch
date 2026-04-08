@@ -1,6 +1,0 @@
---- a/src/storage/layout.ts
-+++ b/src/storage/layout.ts
-@@
--export function resolveCurrentSnapshotId(projectId: string, baseDir?: string) {
-+// Skeleton hook for external incremental-refresh evaluation.
-+export function resolveCurrentSnapshotId(projectId: string, baseDir?: string) {

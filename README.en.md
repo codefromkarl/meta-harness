@@ -9,7 +9,7 @@
     <img alt="Status" src="https://img.shields.io/badge/status-experimental-F59E0B">
   </p>
   <p><a href="./README.md">中文说明</a></p>
-  <p><a href="#quick-start">Quick Start</a> · <a href="./docs/platform-design.md">Platform Design</a> · <a href="./docs/data-model-v1.md">Data Model</a> · <a href="./docs/api-surface-v1.md">API Draft</a></p>
+  <p><a href="#quick-start">Quick Start</a> · <a href="./docs/research/paper-mapping.md">Paper Mapping</a> · <a href="./docs/guides/reproducibility.md">Reproducibility</a> · <a href="./docs/guides/open-source-release-checklist.md">Open-Source Checklist</a></p>
 </div>
 
 ## Research Background
@@ -50,6 +50,33 @@ For AI automation, agent workflows, task execution systems, and other processes 
 - build a reusable experiment record for a team: each attempt, result, and improvement direction can be preserved, reducing reliance on scattered scripts, folders, and memory
 
 The repository already contains runnable profiles, project overlays, task sets, benchmark specs, and strategy cards, which provide a practical foundation for these scenarios.
+
+## Stability
+
+The parts that are reasonable to treat as stable in the current public release are:
+
+- the CLI-driven `candidate -> run -> score -> benchmark -> propose -> shadow-run` artifact loop
+- the unified `mh optimize loop` offline search loop and its `reports/loops/` iteration artifacts
+- the dataset build / ingest / derive-split / promote lifecycle
+- the `demo_public` open demo flow and its supporting docs
+- the filesystem-first organization of runs, candidates, proposals, and reports
+
+The parts that should still be treated as experimental are:
+
+- the HTTP API and async job product surface
+- integration demos such as `demo_openclaw` that depend on external runtimes
+- white-box audit, gate policy, and external observability governance extensions
+- direct model-backed proposers, fuller proposal registry, trace grading, and service-surface convergence
+
+## Glossary
+
+- `profile`: the default execution shape for a workflow family
+- `project`: a lightweight override layer for one repository or scenario
+- `candidate`: an executable harness variant, potentially including config or code patches
+- `proposal`: a suggested next-step variant before or during materialization
+- `benchmark variant`: one concrete variant inside a benchmark comparison
+- `promotion`: the act of elevating a dataset or candidate for preferred use
+- `champion`: the candidate currently promoted as the recommended default
 
 ## Architecture
 
@@ -117,21 +144,26 @@ From there, choose an existing set of assets from `configs/profiles/`, `configs/
 
 If you want the deeper technical view instead of the landing-page summary, read these first:
 
-1. [Platform Design](./docs/platform-design.md)
-2. [Data Model v1](./docs/data-model-v1.md)
-3. [API Surface v1](./docs/api-surface-v1.md)
+1. [Platform Design](./docs/architecture/platform-design.md)
+2. [Data Model v1](./docs/architecture/data-model-v1.md)
+3. [API Surface v1](./docs/architecture/api-surface-v1.md)
 
 Additional references:
 
-- [Artifact Contracts](./docs/artifact-contracts.md)
-- [Gate Policy v1](./docs/gate-policy-v1.md)
-- [Benchmark Spec v2](./docs/benchmark-spec-v2.md)
-- [External Strategy Evaluation](./docs/external-strategy-evaluation.md)
+- [Docs Index](./docs/README.md)
+- [Artifact Contracts](./docs/reference/artifact-contracts.md)
+- [Gate Policy v1](./docs/reference/gate-policy-v1.md)
+- [Benchmark Spec v2](./docs/reference/benchmark-spec-v2.md)
+- [External Strategy Evaluation](./docs/research/external-strategy-evaluation.md)
+- [Paper Mapping](./docs/research/paper-mapping.md)
+- [Reproducibility Guide](./docs/guides/reproducibility.md)
+- [Open-Source Release Checklist](./docs/guides/open-source-release-checklist.md)
 - [ADR Index](./docs/adr/README.md)
 
 ## Current Status
 
 - the CLI is the primary execution surface today
-- the HTTP API is still in design and productization
-- the repository already contains a reusable service layer and an API surface draft
-- the repository does not currently include a `LICENSE` file; add one before external distribution or open-source release
+- the repository already ships an HTTP API and reusable service layer covering workflow, benchmark, integration, and optimize-loop flows
+- the unified search-loop path is implemented; see `docs/architecture/search-loop-blueprint.md`
+- bearer-token API auth is available, while broader workspace and permission modeling is still pending
+- the repository is now released under the `MIT` license; see `LICENSE`
