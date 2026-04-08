@@ -1039,6 +1039,61 @@ def test_execute_evaluation_plan_short_circuits_on_nonzero_validation_command(
     assert "validation boom" in result["validation"]["reason"]
 
 
+def test_execute_evaluation_plan_runs_benchmark_normally_when_validation_is_not_configured(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        reports_root=tmp_path / "reports",
+        max_iterations=1,
+    )
+    (tmp_path / "configs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "candidates").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "task_set.json").write_text('{"tasks":[]}', encoding="utf-8")
+
+    calls: list[str] = []
+
+    def _benchmark(**_: object) -> dict[str, object]:
+        calls.append("benchmark")
+        return {
+            "variants": [
+                {
+                    "name": "candidate",
+                    "candidate_id": "cand-ok",
+                    "run_id": "run-ok",
+                    "score": {"composite": 1.0},
+                    "stability": {"composite_range": 0.0, "composite_stddev": 0.0},
+                    "ranking_score": 1.0,
+                }
+            ]
+        }
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={
+            "kind": "benchmark",
+            "benchmark_spec_path": str(tmp_path / "benchmark.json"),
+        },
+        benchmark_fn=_benchmark,
+        shadow_run_fn=lambda **_: "run-shadow",
+        candidate_id="cand-ok",
+        effective_config={},
+    )
+
+    assert calls == ["benchmark"]
+    assert result["executor"]["status"] == "completed"
+    assert result["validation"] is None
+
+
 def test_run_search_loop_ranks_multiple_proposers_and_records_rejected_proposals(
     tmp_path: Path,
 ) -> None:
