@@ -1,0 +1,565 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from meta_harness.archive import load_run_record
+from meta_harness.candidates import create_candidate, load_candidate_record
+from meta_harness.config_loader import load_effective_config
+from meta_harness.loop.experience import assemble_experience_context
+from meta_harness.loop.iteration_store import (
+    append_iteration_history,
+    loop_root_path,
+    write_iteration_artifact,
+    write_loop_summary,
+)
+from meta_harness.loop.schemas import (
+    LoopIterationArtifact,
+    LoopSummary,
+    ProposerProtocol,
+    SearchLoopRequest,
+    SelectionResult,
+    StopDecision,
+    TaskPluginProtocol,
+)
+from meta_harness.loop.selection import select_best_result
+from meta_harness.loop.selection import score_from_evaluation_result
+from meta_harness.loop.stopping import decide_stop
+from meta_harness.proposals import create_proposal_record, materialize_candidate_from_proposal
+from meta_harness.proposers import rank_proposals
+from meta_harness.scoring import score_run
+from meta_harness.optimizer_shadow import shadow_run_candidate
+from meta_harness.benchmark_engine import run_benchmark
+
+
+def run_search_loop(
+    request: SearchLoopRequest,
+    *,
+    task_plugin: TaskPluginProtocol,
+    proposer: ProposerProtocol | None = None,
+    benchmark_fn: Any = run_benchmark,
+    shadow_run_fn: Any = shadow_run_candidate,
+    reports_root: Path | None = None,
+    proposals_root: Path | None = None,
+) -> LoopSummary:
+    experience_query = request.experience_query
+    effective_config = load_effective_config(
+        config_root=request.config_root,
+        profile_name=request.profile_name,
+        project_name=request.project_name,
+    )
+    objective = _build_objective(
+        request=request,
+        task_plugin=task_plugin,
+        effective_config=effective_config,
+    )
+    proposer = proposer or _default_proposer()
+    loop_id = request.loop_id or f"{request.profile_name}-{request.project_name}-{uuid4().hex[:8]}"
+    loop_dir = loop_root_path(reports_root or (request.reports_root or request.runs_root.parent / "reports"), loop_id)
+    loop_dir.mkdir(parents=True, exist_ok=True)
+
+    current_best: SelectionResult | None = None
+    iterations: list[LoopIterationArtifact] = []
+    no_improvement_count = 0
+    stop_reason = "max iterations reached"
+    best_score = 0.0
+    best_candidate_id: str | None = None
+    best_run_id: str | None = None
+    score_history: list[float] = []
+
+    for iteration_index in range(1, request.max_iterations + 1):
+        plugin_experience_query = _call_optional(
+            task_plugin,
+            "build_experience_query",
+            objective=objective,
+            effective_config=effective_config,
+        )
+        resolved_experience_query = _resolve_experience_query(
+            request_query=experience_query.model_dump() if experience_query is not None else {},
+            plugin_query=plugin_experience_query,
+        )
+        experience = assemble_experience_context(
+            runs_root=request.runs_root,
+            candidates_root=request.candidates_root,
+            profile_name=request.profile_name,
+            project_name=request.project_name,
+            objective=objective,
+            max_history=int(resolved_experience_query.get("max_history", 25) or 25),
+            history_sources=resolved_experience_query.get("history_sources"),
+            best_k=resolved_experience_query.get("best_k"),
+            focus=resolved_experience_query.get("focus"),
+            dedupe_failure_families=bool(
+                resolved_experience_query.get("dedupe_failure_families", False)
+            ),
+        )
+        plugin_experience = _call_optional(
+            task_plugin,
+            "assemble_experience",
+            runs_root=request.runs_root,
+            candidates_root=request.candidates_root,
+            selected_runs=experience.get("matching_runs", []),
+            objective=objective,
+        )
+        if isinstance(plugin_experience, dict):
+            experience = {**experience, **plugin_experience}
+
+        evaluation_plan = _call_optional(
+            task_plugin,
+            "build_evaluation_plan",
+            objective=objective,
+            effective_config=effective_config,
+        )
+        if not isinstance(evaluation_plan, dict):
+            evaluation_plan = {}
+        plugin_stopping_policy = _call_optional(
+            task_plugin,
+            "build_stopping_policy",
+            objective=objective,
+            effective_config=effective_config,
+            evaluation_plan=evaluation_plan,
+        )
+        if isinstance(plugin_stopping_policy, dict):
+            evaluation_plan = {**evaluation_plan, **plugin_stopping_policy}
+
+        plugin_constraints = _call_optional(
+            task_plugin,
+            "build_proposal_constraints",
+            objective=objective,
+            effective_config=effective_config,
+            experience=experience,
+            evaluation_plan=evaluation_plan,
+        )
+        proposal_constraints = {
+            "profile_name": request.profile_name,
+            "project_name": request.project_name,
+            "effective_config": effective_config,
+            "proposal_command": effective_config.get("optimization", {}).get("proposal_command"),
+            "evaluation_plan": evaluation_plan,
+            "request": request.model_dump(),
+            "plugin_constraints": plugin_constraints if isinstance(plugin_constraints, dict) else {},
+            "proposal_constraints": {
+                "focus": objective.get("focus"),
+                "allowed_scopes": (
+                    list((plugin_constraints or {}).get("allowed_scopes") or [])
+                    if isinstance(plugin_constraints, dict)
+                    else []
+                ),
+                "blocked_scopes": (
+                    list((plugin_constraints or {}).get("blocked_scopes") or [])
+                    if isinstance(plugin_constraints, dict)
+                    else []
+                ),
+                "failure_family_priority": [
+                    item.get("family")
+                    for item in experience.get("representative_failures", [])
+                    if isinstance(item, dict) and item.get("family")
+                ],
+                "budget_boundaries": (effective_config.get("budget") if isinstance(effective_config.get("budget"), dict) else {}),
+            },
+        }
+        ranked_proposals = _ranked_proposals(
+            proposers=_normalize_proposers(proposer),
+            objective=objective,
+            experience=experience,
+            constraints=proposal_constraints,
+        )
+        proposal_payload = ranked_proposals[0] if ranked_proposals else {}
+
+        proposal_raw = proposal_payload.get("proposal")
+        proposal_result = proposal_raw if isinstance(proposal_raw, dict) else {}
+        config_patch = proposal_payload.get("config_patch")
+        code_patch = proposal_payload.get("code_patch")
+        notes = str(proposal_payload.get("notes", ""))
+        raw_source_run_ids = proposal_payload.get("source_run_ids", [])
+        source_run_ids = [
+            str(item)
+            for item in raw_source_run_ids
+            if isinstance(raw_source_run_ids, list) and str(item)
+        ] if isinstance(raw_source_run_ids, list) else []
+        proposal_evaluation = {
+            "selected_proposal": {
+                key: value
+                for key, value in proposal_payload.items()
+                if key not in {"config_patch", "code_patch"}
+            },
+            "rejected_proposals": [
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"config_patch", "code_patch"}
+                }
+                for item in ranked_proposals[1:]
+            ],
+        }
+
+        proposal_id = None
+        proposal_path = None
+        candidate_id: str
+        if proposals_root is not None:
+            created_proposals: list[dict[str, Any]] = []
+            for index, ranked_payload in enumerate(ranked_proposals, start=1):
+                ranked_source_run_ids = [
+                    str(item)
+                    for item in ranked_payload.get("source_run_ids", [])
+                    if str(item)
+                ]
+                created_id = create_proposal_record(
+                    proposals_root=proposals_root,
+                    profile_name=request.profile_name,
+                    project_name=request.project_name,
+                    proposer_kind=str(ranked_payload.get("proposer_kind", getattr(proposer, "proposer_id", "unknown"))),
+                    proposal=(
+                        ranked_payload.get("proposal")
+                        if isinstance(ranked_payload.get("proposal"), dict)
+                        else {}
+                    ),
+                    config_patch=(
+                        ranked_payload.get("config_patch")
+                        if isinstance(ranked_payload.get("config_patch"), dict)
+                        else None
+                    ),
+                    code_patch_content=(
+                        ranked_payload.get("code_patch")
+                        if isinstance(ranked_payload.get("code_patch"), str)
+                        else None
+                    ),
+                    notes=str(ranked_payload.get("notes", "")),
+                    source_run_ids=ranked_source_run_ids,
+                    proposal_evaluation={
+                        "selected": index == 1,
+                        "selection_reason": "ranked_first" if index == 1 else "ranked_below_selected",
+                        "proposal_rank": int(ranked_payload.get("proposal_rank", index)),
+                        "proposal_score": float(ranked_payload.get("proposal_score", 0.0)),
+                        "stability_score": float(ranked_payload.get("stability_score", 0.0)),
+                        "cost_score": float(ranked_payload.get("cost_score", 0.0)),
+                        "ranking_basis": ranked_payload.get("ranking_basis") or {},
+                        "rejected_proposals": [],
+                    },
+                )
+                created_proposals.append({"proposal_id": created_id, **ranked_payload})
+            proposal_id = created_proposals[0]["proposal_id"]
+            proposal_path = str(proposals_root / proposal_id)
+            materialized = materialize_candidate_from_proposal(
+                proposals_root=proposals_root,
+                proposal_id=proposal_id,
+                candidates_root=request.candidates_root,
+                config_root=request.config_root,
+            )
+            candidate_id = materialized["candidate_id"]
+        else:
+            candidate_id = create_candidate(
+                candidates_root=request.candidates_root,
+                config_root=request.config_root,
+                profile_name=request.profile_name,
+                project_name=request.project_name,
+                config_patch=config_patch if isinstance(config_patch, dict) else None,
+                code_patch_content=code_patch if isinstance(code_patch, str) else None,
+                notes=notes,
+                proposal=proposal_result,
+                reuse_existing=True,
+            )
+
+        candidate_record = load_candidate_record(request.candidates_root, candidate_id)
+        candidate_path = candidate_record["candidate_dir"]
+        evaluation_payload = _evaluate_candidate(
+            request=request,
+            evaluation_plan=evaluation_plan,
+            benchmark_fn=benchmark_fn,
+            shadow_run_fn=shadow_run_fn,
+            candidate_id=candidate_id,
+            candidate_record=candidate_record,
+            effective_config=effective_config,
+        )
+        current_evaluation_score = score_from_evaluation_result(evaluation_payload)
+        score_history.append(current_evaluation_score)
+
+        selection = select_best_result(
+            candidate_id=candidate_id,
+            evaluation_result=evaluation_payload,
+            previous_best=current_best,
+            selection_policy=(
+                str(evaluation_plan.get("selection_policy"))
+                if evaluation_plan.get("selection_policy") is not None
+                else None
+            ),
+        )
+        if selection is current_best:
+            no_improvement_count += 1
+        else:
+            no_improvement_count = 0
+            current_best = selection
+        best_candidate_id = selection.candidate_id
+        best_run_id = selection.run_id or best_run_id
+        best_score = max(best_score, selection.score)
+
+        stop_decision = decide_stop(
+            iteration_index=iteration_index,
+            max_iterations=request.max_iterations,
+            best_score=best_score,
+            target_score=request.stop_target_score,
+            no_improvement_count=no_improvement_count,
+            no_improvement_limit=int(
+                evaluation_plan.get("no_improvement_limit", request.no_improvement_limit)
+            ),
+            current_score=current_evaluation_score,
+            score_history=score_history,
+            recent_scores=score_history[-int(evaluation_plan.get("stability_window", 3)) :],
+            stability_window=int(evaluation_plan.get("stability_window", 3)),
+            instability_threshold=(
+                float(evaluation_plan["instability_threshold"])
+                if evaluation_plan.get("instability_threshold") is not None
+                else None
+            ),
+            regression_tolerance=(
+                float(evaluation_plan["regression_tolerance"])
+                if evaluation_plan.get("regression_tolerance") is not None
+                else None
+            ),
+        )
+        stop_reason = stop_decision.reason
+
+        summary = _call_optional(
+            task_plugin,
+            "summarize_iteration",
+            benchmark_payload=evaluation_payload,
+            selected_variant=selection.raw_result if isinstance(selection.raw_result, dict) else {},
+        )
+        if not isinstance(summary, dict):
+            summary = {
+                "score": selection.score,
+                "candidate_id": candidate_id,
+                "run_id": selection.run_id,
+            }
+
+        artifact = LoopIterationArtifact(
+            iteration_id=f"{loop_id}-{iteration_index:04d}",
+            iteration_index=iteration_index,
+            objective=objective,
+            experience=experience,
+            proposal={
+                **proposal_result,
+                "proposer_kind": proposal_payload.get("proposer_kind", "unknown"),
+            },
+            candidate_id=candidate_id,
+            candidate_path=candidate_path,
+            proposal_id=proposal_id,
+            proposal_path=proposal_path,
+            run_id=selection.run_id,
+            run_path=str(request.runs_root / selection.run_id) if selection.run_id else None,
+            selection=selection,
+            stop_decision=stop_decision,
+            evaluation=evaluation_payload,
+            summary=summary,
+            artifacts={},
+            proposal_evaluation=proposal_evaluation,
+        )
+        paths = write_iteration_artifact(loop_dir, artifact)
+        artifact.artifacts = {name: str(path) for name, path in paths.items()}
+        paths["iteration_json"].write_text(
+            json.dumps(artifact.model_dump(), indent=2),
+            encoding="utf-8",
+        )
+        paths["next_round_context_json"].write_text(
+            json.dumps(
+                {
+                    "stop_decision": artifact.stop_decision.model_dump()
+                    if artifact.stop_decision
+                    else None,
+                    "artifacts": artifact.artifacts,
+                    "experience_summary_path": str(paths["experience_summary_json"]),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        append_iteration_history(loop_dir, artifact)
+        iterations.append(artifact)
+
+        if stop_decision.should_stop:
+            break
+
+    summary = LoopSummary(
+        loop_id=loop_id,
+        profile_name=request.profile_name,
+        project_name=request.project_name,
+        request=request,
+        best_candidate_id=best_candidate_id,
+        best_run_id=best_run_id,
+        best_score=best_score,
+        iteration_count=len(iterations),
+        stop_reason=stop_reason,
+        iterations=iterations,
+        objective=objective,
+        experience=iterations[-1].experience if iterations else {},
+        loop_dir=str(loop_dir),
+    )
+    write_loop_summary(loop_dir, summary)
+    return summary
+
+
+def _build_objective(
+    *,
+    request: SearchLoopRequest,
+    task_plugin: TaskPluginProtocol,
+    effective_config: dict[str, Any],
+) -> dict[str, Any]:
+    objective = _call_optional(
+        task_plugin,
+        "assemble_objective",
+        profile_name=request.profile_name,
+        project_name=request.project_name,
+        task_set_path=request.task_set_path,
+        effective_config=effective_config,
+    )
+    if not isinstance(objective, dict):
+        objective = {}
+    objective.setdefault("profile_name", request.profile_name)
+    objective.setdefault("project_name", request.project_name)
+    objective.setdefault("task_set_path", str(request.task_set_path))
+    objective.setdefault("focus", request.focus)
+    objective.setdefault("evaluation_mode", request.evaluation_mode)
+    return objective
+
+
+def _evaluate_candidate(
+    *,
+    request: SearchLoopRequest,
+    evaluation_plan: dict[str, Any],
+    benchmark_fn: Any,
+    shadow_run_fn: Any,
+    candidate_id: str,
+    candidate_record: dict[str, Any],
+    effective_config: dict[str, Any],
+) -> dict[str, Any]:
+    return execute_evaluation_plan(
+        request=request,
+        evaluation_plan=evaluation_plan,
+        benchmark_fn=benchmark_fn,
+        shadow_run_fn=shadow_run_fn,
+        candidate_id=candidate_id,
+        effective_config=effective_config,
+    )
+
+
+def execute_evaluation_plan(
+    *,
+    request: SearchLoopRequest,
+    evaluation_plan: dict[str, Any],
+    benchmark_fn: Any,
+    shadow_run_fn: Any,
+    candidate_id: str,
+    effective_config: dict[str, Any],
+) -> dict[str, Any]:
+    evaluation_mode = str(evaluation_plan.get("kind") or request.evaluation_mode)
+    if evaluation_mode == "benchmark":
+        spec_path = evaluation_plan.get("benchmark_spec_path")
+        if not spec_path:
+            return {
+                "mode": "benchmark",
+                "candidate_id": candidate_id,
+                "executor": {"kind": "benchmark", "status": "invalid"},
+                "error": "benchmark_spec_path missing from evaluation plan",
+            }
+        benchmark_payload = benchmark_fn(
+            config_root=request.config_root,
+            runs_root=request.runs_root,
+            candidates_root=request.candidates_root,
+            profile_name=request.profile_name,
+            project_name=request.project_name,
+            task_set_path=request.task_set_path,
+            spec_path=Path(str(spec_path)),
+            focus=request.focus,
+            effective_config_override=effective_config,
+        )
+        return {
+            "mode": "benchmark",
+            "candidate_id": candidate_id,
+            "executor": {
+                "kind": "benchmark",
+                "status": "completed",
+                "spec_path": str(spec_path),
+            },
+            "score": benchmark_payload.get("variants", [{}])[0].get("score", {}),
+            "benchmark": benchmark_payload,
+            **benchmark_payload,
+        }
+
+    run_id = shadow_run_fn(
+        candidates_root=request.candidates_root,
+        runs_root=request.runs_root,
+        candidate_id=candidate_id,
+        task_set_path=request.task_set_path,
+    )
+    run_record = load_run_record(request.runs_root, run_id)
+    score = run_record.get("score") or {}
+    if not score:
+        score = score_run(request.runs_root / run_id)
+    return {
+        "mode": "shadow-run",
+        "candidate_id": candidate_id,
+        "executor": {
+            "kind": "shadow-run",
+            "status": "completed",
+            "run_id": run_id,
+        },
+        "run_id": run_id,
+        "score": score,
+        "run_record": run_record,
+    }
+
+
+def _call_optional(target: Any, method_name: str, **kwargs: Any) -> Any:
+    method = getattr(target, method_name, None)
+    if method is None:
+        return None
+    return method(**kwargs)
+
+
+def _default_proposer() -> ProposerProtocol:
+    from meta_harness.proposers.heuristic_proposer import HeuristicProposer
+
+    return HeuristicProposer()
+
+
+def _normalize_proposers(proposer: Any) -> list[Any]:
+    if isinstance(proposer, list):
+        return proposer
+    if isinstance(proposer, tuple):
+        return list(proposer)
+    return [proposer]
+
+
+def _ranked_proposals(
+    *,
+    proposers: list[Any],
+    objective: dict[str, Any],
+    experience: dict[str, Any],
+    constraints: dict[str, Any],
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for proposer in proposers:
+        payload = proposer.propose(
+            objective=objective,
+            experience=experience,
+            constraints=constraints,
+        )
+        normalized = dict(payload if isinstance(payload, dict) else {})
+        normalized.setdefault("proposer_kind", getattr(proposer, "proposer_id", "unknown"))
+        payloads.append(normalized)
+    return rank_proposals(payloads)
+
+
+def _resolve_experience_query(
+    *,
+    request_query: dict[str, Any],
+    plugin_query: Any,
+) -> dict[str, Any]:
+    resolved = dict(request_query)
+    if isinstance(plugin_query, dict):
+        for key, value in plugin_query.items():
+            if value is None:
+                continue
+            resolved[key] = value
+    return resolved

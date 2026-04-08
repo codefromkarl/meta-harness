@@ -179,7 +179,7 @@ def test_run_execute_resolves_nested_effective_config_templates(tmp_path: Path) 
     write_json(
         run_dir / "effective_config.json",
         {
-            "contextatlas": {
+            "integration": {
                 "repo_path": str(repo_root),
                 "project_id": "project-123",
             }
@@ -193,7 +193,7 @@ def test_run_execute_resolves_nested_effective_config_templates(tmp_path: Path) 
             "tasks": [
                 {
                     "task_id": "task-nested",
-                    "workdir": "${contextatlas.repo_path}",
+                    "workdir": "${integration.repo_path}",
                     "phases": [
                         {
                             "phase": "inspect",
@@ -208,7 +208,7 @@ def test_run_execute_resolves_nested_effective_config_templates(tmp_path: Path) 
                             "command": [
                                 "python",
                                 "-c",
-                                "print('project=${contextatlas.project_id}')",
+                                "print('project=${integration.project_id}')",
                             ],
                         },
                     ],

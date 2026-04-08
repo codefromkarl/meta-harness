@@ -8,9 +8,10 @@ from typer.testing import CliRunner
 from meta_harness.cli import app
 from meta_harness.strategy_cards import (
     build_strategy_benchmark_spec,
-    build_contextatlas_indexing_strategy_benchmark_spec,
     evaluate_strategy_card_compatibility,
     load_strategy_card,
+    load_web_scrape_strategy_cards,
+    recommend_web_scrape_strategy_cards,
     shortlist_strategy_cards,
     strategy_card_to_benchmark_variant,
 )
@@ -211,133 +212,119 @@ def test_strategy_build_spec_command_writes_benchmark_spec(tmp_path: Path) -> No
         "freshness_guard_external",
     ]
 
-
-def test_build_contextatlas_indexing_strategy_benchmark_spec_uses_v2_defaults(
-    tmp_path: Path,
-) -> None:
-    executable = tmp_path / "dense_chunking.json"
-    research_only = tmp_path / "paper_only.json"
-    write_json(
-        executable,
-        {
-            "strategy_id": "indexing/dense-chunking-v2",
-            "title": "Dense Chunking",
-            "source": "reference://dense-chunking",
-            "category": "indexing",
-            "change_type": "config_only",
-            "config_patch": {"indexing": {"chunk_size": 1200, "chunk_overlap": 160}},
-        },
-    )
-    write_json(
-        research_only,
-        {
-            "strategy_id": "indexing/research-only",
-            "title": "Research Only",
-            "source": "reference://research-only",
-            "category": "indexing",
-            "change_type": "not_yet_executable",
-        },
-    )
-
-    spec = build_contextatlas_indexing_strategy_benchmark_spec(
-        strategy_cards=[
-            load_strategy_card(executable),
-            load_strategy_card(research_only),
-        ]
-    )
-
-    assert spec["experiment"] == "contextatlas_external_indexing_strategies"
-    assert spec["baseline"] == "current_indexing"
-    assert spec["analysis_mode"] == "architecture"
-    assert spec["repeats"] == 3
-    assert spec["report"]["recommended_task_set"] == (
-        "task_sets/contextatlas/benchmark_indexing_architecture_v2.json"
-    )
-    assert [scenario["id"] for scenario in spec["scenarios"]] == [
-        "exact_symbol_lookup",
-        "cross_file_dependency_trace",
-        "index_freshness_sensitive",
-        "recent_change_discovery",
-        "stale_index_recovery",
-        "large_repo_retrieval",
-    ]
-    assert [variant["name"] for variant in spec["variants"]] == [
-        "current_indexing",
-        "indexing_dense-chunking-v2",
-    ]
-
-
-def test_contextatlas_strategy_card_assets_exist_and_match_template_spec() -> None:
+def test_web_scrape_strategy_cards_load_from_directory() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    card_paths = [
-        repo_root
-        / "configs"
-        / "strategy_cards"
-        / "contextatlas"
-        / "dense_chunking_external.json",
-        repo_root
-        / "configs"
-        / "strategy_cards"
-        / "contextatlas"
-        / "freshness_guard_external.json",
-        repo_root
-        / "configs"
-        / "strategy_cards"
-        / "contextatlas"
-        / "incremental_refresh_patch.json",
-        repo_root
-        / "configs"
-        / "strategy_cards"
-        / "contextatlas"
-        / "graph_posting_lists_research_only.json",
-    ]
-    benchmark_path = (
-        repo_root
-        / "configs"
-        / "benchmarks"
-        / "contextatlas_external_indexing_strategies.json"
-    )
+    config_root = repo_root / "configs"
 
-    cards = [load_strategy_card(path) for path in card_paths]
-    payload = json.loads(benchmark_path.read_text(encoding="utf-8"))
-    generated = build_contextatlas_indexing_strategy_benchmark_spec(strategy_cards=cards)
+    cards = load_web_scrape_strategy_cards(config_root)
 
     assert [card.strategy_id for card in cards] == [
-        "indexing/dense-chunking-external",
-        "indexing/freshness-guard-external",
-        "indexing/incremental-refresh-patch",
-        "indexing/graph-posting-lists-research-only",
+        "web_scrape/headless-fingerprint-proxy",
+        "web_scrape/html-to-markdown-llm",
+        "web_scrape/selector-only",
+        "web_scrape/vlm-visual-extract",
     ]
-    assert payload == generated
+    assert all(card.primitive_id == "web_scrape" for card in cards)
+    assert all("page_profile" in card.capability_metadata for card in cards)
+    assert all("workload_profile" in card.capability_metadata for card in cards)
 
 
-def test_contextatlas_external_strategy_first_pass_suite_assets_exist() -> None:
+def test_web_scrape_strategy_recommendations_match_page_and_workload_profiles(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "web scrape", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {"workflow": "base", "overrides": {}},
+    )
+
     repo_root = Path(__file__).resolve().parents[1]
-    suite_path = (
+    card_paths = [
+        repo_root / "configs" / "strategy_cards" / "web_scrape" / "html_to_markdown_llm.json",
+        repo_root / "configs" / "strategy_cards" / "web_scrape" / "selector_only.json",
+        repo_root / "configs" / "strategy_cards" / "web_scrape" / "vlm_visual_extract.json",
         repo_root
         / "configs"
-        / "benchmarks"
-        / "contextatlas_external_strategy_first_pass_suite.json"
-    )
-    doc_path = repo_root / "docs" / "external-strategy-evaluation.md"
-
-    payload = json.loads(suite_path.read_text(encoding="utf-8"))
-    doc = doc_path.read_text(encoding="utf-8")
-
-    assert payload["suite"] == "contextatlas_external_strategy_first_pass"
-    assert payload["benchmarks"] == [
-        {
-            "spec": "configs/benchmarks/contextatlas_indexing_architecture_v2.json",
-            "focus": "indexing",
-            "task_set": "task_sets/contextatlas/benchmark_indexing_architecture_v2.json",
-        },
-        {
-            "spec": "configs/benchmarks/contextatlas_external_indexing_strategies.json",
-            "focus": "indexing",
-            "task_set": "task_sets/contextatlas/benchmark_indexing_architecture_v2.json",
-        },
+        / "strategy_cards"
+        / "web_scrape"
+        / "headless_fingerprint_proxy.json",
     ]
-    assert "contextatlas_external_strategy_first_pass_suite.json" in doc
+
+    cases = [
+        (
+            "low-ad-hoc",
+            {"content_complexity": "low", "render_required": False},
+            {"usage_mode": "ad_hoc", "batch_size": 1, "project_name": "demo"},
+            "web_scrape/html-to-markdown-llm",
+        ),
+        (
+            "low-recurring",
+            {"content_complexity": "low", "schema_stability": "high"},
+            {"usage_mode": "recurring", "batch_size": 100, "project_name": "demo"},
+            "web_scrape/selector-only",
+        ),
+        (
+            "high-ad-hoc",
+            {"content_complexity": "high", "render_required": True, "media_dependency": True},
+            {"usage_mode": "ad_hoc", "batch_size": 1, "project_name": "demo"},
+            "web_scrape/vlm-visual-extract",
+        ),
+        (
+            "high-recurring",
+            {
+                "content_complexity": "high",
+                "render_required": True,
+                "interaction_required": True,
+                "anti_bot_level": "high",
+            },
+            {"usage_mode": "recurring", "batch_size": 200, "project_name": "demo"},
+            "web_scrape/headless-fingerprint-proxy",
+        ),
+    ]
+
+    for _, page_profile, workload_profile, expected_strategy_id in cases:
+        payload = recommend_web_scrape_strategy_cards(
+            page_profile=page_profile,
+            workload_profile=workload_profile,
+            strategy_card_paths=card_paths,
+            config_root=config_root,
+            limit=1,
+        )
+        assert payload["selected_strategy_id"] == expected_strategy_id
+        assert payload["recommendations"][0]["strategy_id"] == expected_strategy_id
+        assert payload["recommendations"][0]["recommendation_score"] > 0
+
+
+def test_recommend_web_scrape_strategy_cards_returns_audit_report_shape() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    payload = recommend_web_scrape_strategy_cards(
+        page_profile={
+            "content_complexity": "high",
+            "render_required": True,
+            "anti_bot_level": "high",
+            "media_dependency": True,
+        },
+        workload_profile={
+            "usage_mode": "ad_hoc",
+            "budget_mode": "high_success",
+        },
+        config_root=repo_root / "configs",
+        limit=2,
+    )
+
+    assert payload["assessment"]["page_bucket"] == "high"
+    assert payload["assessment"]["workload_bucket"] == "ad_hoc"
+    assert payload["primary_recommendation"]["strategy_id"] == "web_scrape/vlm-visual-extract"
+    assert payload["primary_recommendation"]["expected_benefits"]
+    assert payload["primary_recommendation"]["expected_costs"]
+    assert payload["primary_recommendation"]["rationale"]
+    assert len(payload["alternatives"]) == 1
 
 
 def test_evaluate_strategy_card_compatibility_detects_missing_runtime_keys_and_paths(
@@ -1103,3 +1090,157 @@ def test_strategy_shortlist_command_reports_grouped_cards(
     assert payload["summary"]["blocked"] == 1
     assert payload["groups"]["executable"][0]["strategy_id"] == "indexing/b"
     assert payload["groups"]["blocked"][0]["strategy_id"] == "indexing/a"
+
+
+def test_strategy_recommend_web_scrape_command_reports_recommendations(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    page_profile_path = tmp_path / "page_profile.json"
+    workload_profile_path = tmp_path / "workload_profile.json"
+    write_json(
+        page_profile_path,
+        {
+            "complexity": "low",
+            "requires_rendering": False,
+            "anti_bot_level": "low",
+        },
+    )
+    write_json(
+        workload_profile_path,
+        {
+            "usage_mode": "recurring",
+            "batch_size": 50,
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "strategy",
+            "recommend-web-scrape",
+            "--page-profile",
+            str(page_profile_path),
+            "--workload-profile",
+            str(workload_profile_path),
+            "--config-root",
+            str(repo_root / "configs"),
+            "--limit",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["selected_strategy_id"] == "web_scrape/selector-only"
+    assert len(payload["recommendations"]) == 2
+    assert payload["assessment"]["workload_bucket"] == "recurring"
+    assert payload["primary_recommendation"]["strategy_id"] == "web_scrape/selector-only"
+
+
+def test_strategy_audit_web_scrape_command_reports_alignment(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    page_profile_path = tmp_path / "page_profile.json"
+    workload_profile_path = tmp_path / "workload_profile.json"
+    benchmark_report_path = tmp_path / "benchmark.json"
+    write_json(
+        page_profile_path,
+        {
+            "complexity": "high",
+            "requires_rendering": True,
+            "anti_bot_level": "high",
+        },
+    )
+    write_json(
+        workload_profile_path,
+        {
+            "usage_mode": "ad_hoc",
+        },
+    )
+    write_json(
+        benchmark_report_path,
+        {
+            "experiment": "web-scrape-audit",
+            "best_variant": "selector_only",
+            "best_by_quality": "selector_only",
+            "best_by_stability": "selector_only",
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "strategy",
+            "audit-web-scrape",
+            "--page-profile",
+            str(page_profile_path),
+            "--workload-profile",
+            str(workload_profile_path),
+            "--benchmark-report",
+            str(benchmark_report_path),
+            "--config-root",
+            str(repo_root / "configs"),
+            "--limit",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["primary_recommendation"]["strategy_id"] == "web_scrape/vlm-visual-extract"
+    assert payload["alignment"]["benchmark_best_variant"] == "selector_only"
+    assert payload["alignment"]["aligned"] is False
+
+
+def test_strategy_build_web_scrape_audit_spec_command_writes_spec(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    page_profile_path = tmp_path / "page_profile.json"
+    workload_profile_path = tmp_path / "workload_profile.json"
+    output_path = tmp_path / "web-scrape-benchmark.json"
+    write_json(
+        page_profile_path,
+        {
+            "complexity": "low",
+            "requires_rendering": False,
+        },
+    )
+    write_json(
+        workload_profile_path,
+        {
+            "usage_mode": "recurring",
+            "batch_size": 50,
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "strategy",
+            "build-web-scrape-audit-spec",
+            "--page-profile",
+            str(page_profile_path),
+            "--workload-profile",
+            str(workload_profile_path),
+            "--output",
+            str(output_path),
+            "--config-root",
+            str(repo_root / "configs"),
+            "--limit",
+            "2",
+            "--repeats",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["output_path"] == str(output_path)
+    assert payload["benchmark_spec"]["repeats"] == 2
+    assert output_path.exists()

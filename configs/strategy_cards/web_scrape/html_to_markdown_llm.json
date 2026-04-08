@@ -1,0 +1,67 @@
+{
+  "strategy_id": "web_scrape/html-to-markdown-llm",
+  "title": "HTML to Markdown LLM",
+  "source": "reference://web_scrape/html_to_markdown_llm",
+  "category": "web_scrape",
+  "primitive_id": "web_scrape",
+  "capability_metadata": {
+    "page_profile": {
+      "complexity": "low",
+      "render_required": false,
+      "interaction_required": false,
+      "anti_bot_level": "low",
+      "media_dependency": false
+    },
+    "workload_profile": {
+      "mode": "ad_hoc",
+      "usage_mode": "ad_hoc",
+      "freshness_requirement": "medium",
+      "allowed_failure_rate": "medium"
+    }
+  },
+  "priority": 10,
+  "change_type": "config_only",
+  "variant_type": "method_family",
+  "variant_name": "html_to_markdown_llm",
+  "hypothesis": "Low-complexity pages can be normalized into markdown first to reduce token waste while preserving extraction quality.",
+  "expected_benefits": [
+    "low implementation overhead",
+    "lower token cost",
+    "fast iteration for one-off pages"
+  ],
+  "expected_costs": [
+    "may miss deeply nested interactive elements",
+    "can underperform on highly dynamic pages"
+  ],
+  "config_patch": {
+    "workflow": {
+      "primitives": {
+        "web_scrape": {
+          "pipeline": "html_to_markdown_llm",
+          "markdown_cleanup": true,
+          "timeout_ms": 7000
+        }
+      }
+    }
+  },
+  "expected_signals": {
+    "fingerprints": {
+      "scrape.mode": "markdown"
+    },
+    "probes": {
+      "scrape.retry_count": {
+        "max": 2
+      }
+    }
+  },
+  "risk_notes": [
+    "best fit when source HTML already contains the required fields"
+  ],
+  "tags": [
+    "web_scrape",
+    "markdown",
+    "llm",
+    "ad_hoc",
+    "low-complexity"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "pack_id": "data_analysis/core",
+  "version": "v1",
+  "supported_primitives": [
+    "data_analysis"
+  ],
+  "command": [
+    "python",
+    "scripts/eval_data_analysis.py"
+  ],
+  "artifact_requirements": [
+    "analysis_summary.json",
+    "analysis_report.md"
+  ],
+  "emits_metrics": [
+    "success_rate",
+    "latency_ms"
+  ],
+  "emits_probes": [
+    "analysis.plan_step_count",
+    "analysis.retry_count"
+  ]
+}

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from meta_harness.scoring import score_run
 
 
@@ -131,6 +133,64 @@ def test_score_run_merges_capability_scores_workflow_scores_and_probes(
     assert report["probes"] == {"scrape.navigation_depth": 2}
 
 
+def test_command_evaluator_persists_execution_artifacts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "run-observable"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        run_dir / "effective_config.json",
+        {
+            "evaluation": {
+                "evaluators": ["command"],
+                "command_evaluators": [
+                    {
+                        "name": "observable-pack",
+                        "command": [
+                            "python",
+                            "-c",
+                            (
+                                "import json, sys; "
+                                "print(json.dumps({'architecture': {'signal': 1}})); "
+                                "print('debug-line', file=sys.stderr)"
+                            ),
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run-observable", "profile": "base", "project": "demo"},
+    )
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "step_id": "step-1",
+                "phase": "review",
+                "status": "completed",
+                "latency_ms": 30,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = score_run(run_dir)
+
+    assert report["architecture"]["signal"] == 1
+    artifact_dir = run_dir / "evaluators" / "command_artifacts" / "01-observable-pack"
+    metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["name"] == "observable-pack"
+    assert metadata["returncode"] == 0
+    assert metadata["duration_ms"] >= 0
+    assert json.loads((artifact_dir / "payload.json").read_text(encoding="utf-8")) == {
+        "architecture": {"signal": 1}
+    }
+    assert "debug-line" in (artifact_dir / "stderr.txt").read_text(encoding="utf-8")
+
+
 def test_score_run_applies_calibration_variance_probe_adjustment_only_when_present(
     tmp_path: Path,
 ) -> None:
@@ -216,3 +276,61 @@ def test_score_run_leaves_normal_runs_unchanged_without_calibration_probe(
     report = score_run(run_dir)
 
     assert report["composite"] == 1.0
+
+
+def test_command_evaluator_resolves_env_backed_command_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "runs" / "run-template-command"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+    script_path = tmp_path / "template_eval.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "import os",
+                "print(json.dumps({'architecture': {'env_ok': 1 if os.environ.get('TEMPLATE_MARKER') == 'ready' else 0}}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TEMPLATE_EVAL_SCRIPT", str(script_path))
+    monkeypatch.setenv("TEMPLATE_MARKER", "ready")
+
+    write_json(
+        run_dir / "effective_config.json",
+        {
+            "evaluation": {
+                "evaluators": ["command"],
+                "command_evaluators": [
+                    {
+                        "name": "template-pack",
+                        "command": ["python", "${env.TEMPLATE_EVAL_SCRIPT}"],
+                    }
+                ],
+            }
+        },
+    )
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run-template-command", "profile": "base", "project": "demo"},
+    )
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "step_id": "step-1",
+                "phase": "review",
+                "status": "completed",
+                "latency_ms": 30,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = score_run(run_dir)
+
+    assert report["architecture"]["env_ok"] == 1

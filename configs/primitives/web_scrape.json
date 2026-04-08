@@ -3,6 +3,53 @@
   "version": "v1",
   "kind": "browser_interaction",
   "description": "Fetch web pages and extract structured data for downstream workflow steps.",
+  "output_contract": {
+    "bridge": {
+      "prompt_mode": "json_schema",
+      "response_fields": [
+        {
+          "name": "page_html",
+          "type": "string"
+        },
+        {
+          "name": "extracted",
+          "type": "object",
+          "required_fields_from": "task.expectations.required_fields"
+        }
+      ],
+      "artifact_writes": [
+        {
+          "path": "page.html",
+          "payload_path": "page_html",
+          "format": "text"
+        },
+        {
+          "path": "extracted.json",
+          "payload_path": "extracted",
+          "format": "json"
+        }
+      ],
+      "benchmark_probe": {
+        "fingerprints": {
+          "scrape.mode": "${workflow.primitives.web_scrape.pipeline}"
+        },
+        "probes": {
+          "scrape.retry_count": "${workflow.primitives.web_scrape.retry_limit}",
+          "scrape.navigation_depth": "${task.expectations.knobs.navigation_depth}"
+        }
+      }
+    }
+  },
+  "evaluation_contract": {
+    "artifact_requirements": [
+      "page.html",
+      "extracted.json"
+    ],
+    "quality_thresholds": {
+      "field_completeness": 0.8,
+      "grounded_field_rate": 0.75
+    }
+  },
   "metric_schema": [
     {
       "name": "success_rate",

@@ -1,0 +1,58 @@
+{
+  "description": "OpenClaw-backed public demo for bundled websearch and analysis tasks",
+  "defaults": {
+    "budget": {
+      "max_turns": 8
+    },
+    "workflow": {
+      "primitives": {
+        "web_scrape": {
+          "pipeline": "baseline",
+          "retry_limit": 1,
+          "timeout_ms": 6000
+        },
+        "data_analysis": {
+          "analysis_mode": "direct_summary",
+          "max_plan_steps": 2,
+          "retry_limit": 0
+        }
+      }
+    },
+    "runtime": {
+      "binding": {
+        "binding_id": "openclaw/demo/websearch_analysis",
+        "adapter_kind": "openclaw_agent",
+        "cli_command": [
+          "openclaw",
+          "agent"
+        ],
+        "agent": "ops",
+        "local": true,
+        "timeout": 45,
+        "json": true
+      }
+    },
+    "evaluation": {
+      "evaluators": [
+        "basic",
+        "command"
+      ],
+      "command_evaluators": [
+        {
+          "name": "web_scrape/core",
+          "command": [
+            "python",
+            "scripts/eval_web_scrape.py"
+          ]
+        },
+        {
+          "name": "data_analysis/core",
+          "command": [
+            "python",
+            "scripts/eval_data_analysis.py"
+          ]
+        }
+      ]
+    }
+  }
+}

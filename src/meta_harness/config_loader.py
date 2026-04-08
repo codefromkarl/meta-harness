@@ -24,12 +24,27 @@ def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return _deep_merge(base, override)
 
 
+def load_platform_config(
+    config_root: Path,
+    project_name: str | None = None,
+) -> dict[str, Any]:
+    platform_config = _read_json(config_root / "platform.json")
+    if project_name is None:
+        return platform_config
+
+    project_config = _read_json(config_root / "projects" / f"{project_name}.json")
+    overrides = project_config.get("overrides", {})
+    if not isinstance(overrides, dict):
+        return platform_config
+    return _deep_merge(platform_config, overrides)
+
+
 def load_effective_config(
     config_root: Path,
     profile_name: str,
     project_name: str | None = None,
 ) -> dict[str, Any]:
-    platform_config = _read_json(config_root / "platform.json")
+    platform_config = load_platform_config(config_root)
     profile_config = _read_json(config_root / "profiles" / f"{profile_name}.json")
 
     effective = _deep_merge(platform_config, profile_config.get("defaults", {}))

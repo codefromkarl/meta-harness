@@ -1,0 +1,175 @@
+{
+  "tasks": [
+    {
+      "task_id": "fetch-tool-a",
+      "scenario": "web_scrape",
+      "difficulty": "easy",
+      "weight": 1.0,
+      "workdir": "${workspace_dir}",
+      "expectations": {
+        "primitive_id": "web_scrape",
+        "role": "hot_path",
+        "required_fields": [
+          "tool_name",
+          "pricing_model",
+          "api_access",
+          "collaboration_support"
+        ],
+        "latency_budget_ms": 12000,
+        "quality_thresholds": {
+          "field_completeness": 0.8,
+          "grounded_field_rate": 0.75
+        }
+      },
+      "phases": [
+        {
+          "phase": "fetch",
+          "message": "You are extracting structured product facts from a bundled HTML pricing page. Read the file at ${meta_harness.repo_root}/demo/openclaw_websearch_analysis/sources/tool_a_pricing.html and return strict JSON with keys page_html and extracted. The extracted object must contain tool_name, pricing_model, api_access, collaboration_support, and one_sentence_summary. Use scrape_mode=${workflow.primitives.web_scrape.pipeline} and retry_limit=${workflow.primitives.web_scrape.retry_limit}.",
+          "postprocess_command": [
+            "python",
+            "${meta_harness.repo_root}/demo/openclaw_websearch_analysis/scripts/normalize_web_result.py",
+            "${run_dir}/tasks/${task.task_id}/fetch.binding_payload.json",
+            "${run_dir}/tasks/${task.task_id}",
+            "${workspace_dir}/collected/${task.task_id}.json",
+            "scrape.mode=${workflow.primitives.web_scrape.pipeline}",
+            "scrape.retry_count=${workflow.primitives.web_scrape.retry_limit}",
+            "scrape.navigation_depth=1"
+          ],
+          "command": [
+            "python",
+            "-c",
+            "raise SystemExit(9)"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "fetch-tool-b",
+      "scenario": "web_scrape",
+      "difficulty": "medium",
+      "weight": 1.1,
+      "workdir": "${workspace_dir}",
+      "expectations": {
+        "primitive_id": "web_scrape",
+        "role": "hot_path",
+        "required_fields": [
+          "tool_name",
+          "pricing_model",
+          "api_access",
+          "collaboration_support"
+        ],
+        "latency_budget_ms": 12000,
+        "quality_thresholds": {
+          "field_completeness": 0.8,
+          "grounded_field_rate": 0.75
+        }
+      },
+      "phases": [
+        {
+          "phase": "fetch",
+          "message": "You are extracting structured product facts from a bundled HTML pricing page. Read the file at ${meta_harness.repo_root}/demo/openclaw_websearch_analysis/sources/tool_b_pricing.html and return strict JSON with keys page_html and extracted. The extracted object must contain tool_name, pricing_model, api_access, collaboration_support, and one_sentence_summary. Use scrape_mode=${workflow.primitives.web_scrape.pipeline} and retry_limit=${workflow.primitives.web_scrape.retry_limit}.",
+          "postprocess_command": [
+            "python",
+            "${meta_harness.repo_root}/demo/openclaw_websearch_analysis/scripts/normalize_web_result.py",
+            "${run_dir}/tasks/${task.task_id}/fetch.binding_payload.json",
+            "${run_dir}/tasks/${task.task_id}",
+            "${workspace_dir}/collected/${task.task_id}.json",
+            "scrape.mode=${workflow.primitives.web_scrape.pipeline}",
+            "scrape.retry_count=${workflow.primitives.web_scrape.retry_limit}",
+            "scrape.navigation_depth=1"
+          ],
+          "command": [
+            "python",
+            "-c",
+            "raise SystemExit(9)"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "fetch-tool-c",
+      "scenario": "web_scrape",
+      "difficulty": "medium",
+      "weight": 1.1,
+      "workdir": "${workspace_dir}",
+      "expectations": {
+        "primitive_id": "web_scrape",
+        "role": "hot_path",
+        "required_fields": [
+          "tool_name",
+          "pricing_model",
+          "api_access",
+          "collaboration_support"
+        ],
+        "latency_budget_ms": 12000,
+        "quality_thresholds": {
+          "field_completeness": 0.8,
+          "grounded_field_rate": 0.75
+        }
+      },
+      "phases": [
+        {
+          "phase": "fetch",
+          "message": "You are extracting structured product facts from a bundled HTML pricing page. Read the file at ${meta_harness.repo_root}/demo/openclaw_websearch_analysis/sources/tool_c_pricing.html and return strict JSON with keys page_html and extracted. The extracted object must contain tool_name, pricing_model, api_access, collaboration_support, and one_sentence_summary. Use scrape_mode=${workflow.primitives.web_scrape.pipeline} and retry_limit=${workflow.primitives.web_scrape.retry_limit}.",
+          "postprocess_command": [
+            "python",
+            "${meta_harness.repo_root}/demo/openclaw_websearch_analysis/scripts/normalize_web_result.py",
+            "${run_dir}/tasks/${task.task_id}/fetch.binding_payload.json",
+            "${run_dir}/tasks/${task.task_id}",
+            "${workspace_dir}/collected/${task.task_id}.json",
+            "scrape.mode=${workflow.primitives.web_scrape.pipeline}",
+            "scrape.retry_count=${workflow.primitives.web_scrape.retry_limit}",
+            "scrape.navigation_depth=1"
+          ],
+          "command": [
+            "python",
+            "-c",
+            "raise SystemExit(9)"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "analyze-comparison",
+      "scenario": "data_analysis",
+      "difficulty": "hard",
+      "weight": 1.4,
+      "workdir": "${workspace_dir}",
+      "expectations": {
+        "primitive_id": "data_analysis",
+        "role": "hot_path",
+        "required_fields": [
+          "recommended_tool",
+          "cheapest_tool",
+          "best_collaboration_tool",
+          "rationale"
+        ],
+        "latency_budget_ms": 15000,
+        "quality_thresholds": {
+          "field_completeness": 0.8,
+          "grounded_field_rate": 0.75
+        }
+      },
+      "phases": [
+        {
+          "phase": "analyze",
+          "message": "You are comparing bundled web research extracts. Read ${workspace_dir}/collected/fetch-tool-a.json, ${workspace_dir}/collected/fetch-tool-b.json, and ${workspace_dir}/collected/fetch-tool-c.json. Return strict JSON with keys analysis_summary and analysis_report. analysis_summary must contain recommended_tool, cheapest_tool, best_collaboration_tool, and rationale. analysis_report must be a markdown explanation grounded in those input files. Use analysis_mode=${workflow.primitives.data_analysis.analysis_mode}, max_plan_steps=${workflow.primitives.data_analysis.max_plan_steps}, and retry_limit=${workflow.primitives.data_analysis.retry_limit}.",
+          "postprocess_command": [
+            "python",
+            "${meta_harness.repo_root}/demo/openclaw_websearch_analysis/scripts/normalize_analysis_result.py",
+            "${run_dir}/tasks/${task.task_id}/analyze.binding_payload.json",
+            "${run_dir}/tasks/${task.task_id}",
+            "analysis.mode=${workflow.primitives.data_analysis.analysis_mode}",
+            "analysis.plan_step_count=${workflow.primitives.data_analysis.max_plan_steps}",
+            "analysis.retry_count=${workflow.primitives.data_analysis.retry_limit}"
+          ],
+          "command": [
+            "python",
+            "-c",
+            "raise SystemExit(9)"
+          ]
+        }
+      ]
+    }
+  ]
+}

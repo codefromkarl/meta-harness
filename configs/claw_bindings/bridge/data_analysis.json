@@ -1,0 +1,18 @@
+{
+  "binding_id": "bridge/data_analysis",
+  "claw_family": "generic",
+  "primitive_id": "data_analysis",
+  "adapter_kind": "json_agent_cli",
+  "execution": {
+    "bridge_contract": "primitive_output",
+    "cli_command": [
+      "openclaw",
+      "agent"
+    ],
+    "json": true,
+    "local": true
+  },
+  "artifact_contract": {
+    "source": "primitive.output_contract.bridge"
+  }
+}

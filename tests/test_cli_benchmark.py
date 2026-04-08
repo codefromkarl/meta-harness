@@ -5,7 +5,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from meta_harness.benchmark import run_benchmark
 from meta_harness.cli import app
+import meta_harness.cli as cli_module
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -63,6 +65,94 @@ def make_task_set_with_metadata(
     )
 
 
+def test_run_benchmark_supports_harness_native_variant_and_metadata(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(
+        repo_root / "source.txt",
+        {"message": "workspace source"},
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+    write_json(
+        spec_path,
+        {
+            "experiment": "harness-native",
+            "baseline": "baseline",
+            "variants": [
+                {"name": "baseline"},
+                {
+                    "name": "candidate_harness",
+                    "variant_type": "harness",
+                    "candidate_harness": {
+                        "candidate_id": "cand-harness-1",
+                        "harness_spec_id": "harness-demo",
+                        "iteration_id": "iter-1",
+                        "proposal_id": "proposal-1",
+                        "wrapper_path": "scripts/generated/demo_harness_wrapper.py",
+                        "source_artifacts": [
+                            "reports/integration/harness-demo/harness_spec.reviewed.json",
+                            "reports/integration/harness-demo/harness_review_result.json",
+                        ],
+                        "provenance": {
+                            "review_result_path": "reports/integration/harness-demo/harness_review_result.json",
+                            "source": "integration_service",
+                        },
+                        "runtime": {
+                            "binding": {
+                                "binding_id": "harness/demo",
+                                "adapter_kind": "command",
+                                "command": ["python", "-c", "print('harness-run')"],
+                            }
+                        },
+                    },
+                },
+            ],
+        },
+    )
+
+    payload = run_benchmark(
+        config_root=config_root,
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        profile_name="base",
+        project_name="demo",
+        task_set_path=task_set,
+        spec_path=spec_path,
+        effective_config_override={
+            "runtime": {"workspace": {"source_repo": str(repo_root)}},
+            "evaluation": {"evaluators": ["basic"]},
+        },
+    )
+
+    harness_variant = next(
+        item for item in payload["variants"] if item["name"] == "candidate_harness"
+    )
+    assert harness_variant["variant_type"] == "harness"
+    assert harness_variant["candidate_harness"]["candidate_id"]
+    assert harness_variant["candidate_harness"]["harness_spec_id"] == "harness-demo"
+    assert harness_variant["candidate_harness"]["iteration_id"] == "iter-1"
+    assert harness_variant["candidate_harness"]["proposal_id"] == "proposal-1"
+    assert harness_variant["candidate_harness"]["wrapper_path"].endswith(
+        "demo_harness_wrapper.py"
+    )
+    assert harness_variant["candidate_harness"]["source_artifacts"]
+    assert harness_variant["candidate_harness"]["provenance"]["source"] == "integration_service"
+    assert harness_variant["candidate_harness"]["runtime"]["binding"]["binding_id"] == "harness/demo"
+    assert harness_variant["candidate_harness"]["runtime"]["binding"]["command"] == [
+        "python",
+        "-c",
+        "print('harness-run')",
+    ]
+
+
 def test_observe_benchmark_runs_variants_and_selects_best(tmp_path: Path) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
@@ -81,7 +171,7 @@ def test_observe_benchmark_runs_variants_and_selects_best(tmp_path: Path) -> Non
                 "from pathlib import Path",
                 "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
                 "retrieval = payload.get('retrieval', {})",
-                "memory = (payload.get('contextatlas') or {}).get('memory', {})",
+                "memory = (payload.get('memory') or {})",
                 "top_k = int(retrieval.get('top_k', 8))",
                 "memory_enabled = memory.get('enabled', True)",
                 "hit_rate = 0.55 if top_k <= 8 else 0.82",
@@ -126,7 +216,7 @@ def test_observe_benchmark_runs_variants_and_selects_best(tmp_path: Path) -> Non
             "description": "workflow",
             "defaults": {
                 "retrieval": {"top_k": 8},
-                "contextatlas": {"memory": {"enabled": True}},
+                "memory": {"enabled": True},
                 "evaluation": {
                     "evaluators": ["basic", "command"],
                     "command_evaluators": [
@@ -162,7 +252,7 @@ def test_observe_benchmark_runs_variants_and_selects_best(tmp_path: Path) -> Non
                 {"name": "larger_top_k", "config_patch": {"retrieval": {"top_k": 12}}},
                 {
                     "name": "memory_off",
-                    "config_patch": {"contextatlas": {"memory": {"enabled": False}}},
+                    "config_patch": {"memory": {"enabled": False}},
                 },
             ],
         },
@@ -217,6 +307,363 @@ def test_observe_benchmark_runs_variants_and_selects_best(tmp_path: Path) -> Non
         ]
         == 0.27
     )
+
+
+def test_observe_benchmark_auto_compacts_runs_by_default(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+    calls: list[dict[str, object]] = []
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "print(json.dumps({'composite_adjustment': 0.0}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "auto-compact-benchmark",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}, {"name": "variant-b"}],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    def fake_compact_runs(
+        runs_root_arg: Path,
+        *,
+        candidates_root: Path | None = None,
+        dry_run: bool = False,
+        experiment: str | None = None,
+        benchmark_family: str | None = None,
+        status: str | None = None,
+        include_artifacts: bool = False,
+        compactable_statuses: list[str] | None = None,
+        cleanup_auxiliary_dirs: bool = True,
+    ) -> dict[str, object]:
+        calls.append(
+            {
+                "runs_root": runs_root_arg,
+                "candidates_root": candidates_root,
+                "dry_run": dry_run,
+                "experiment": experiment,
+                "benchmark_family": benchmark_family,
+                "status": status,
+                "include_artifacts": include_artifacts,
+                "compactable_statuses": compactable_statuses,
+                "cleanup_auxiliary_dirs": cleanup_auxiliary_dirs,
+            }
+        )
+        return {"dry_run": False, "compacted_runs": [{"run_id": "old", "removed": ["workspace"]}]}
+
+    monkeypatch.setattr(cli_module, "compact_runs", fake_compact_runs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["run_compaction"] == {
+        "dry_run": False,
+        "compacted_runs": [{"run_id": "old", "removed": ["workspace"]}],
+    }
+    assert calls == [
+        {
+            "runs_root": runs_root,
+            "candidates_root": candidates_root,
+            "dry_run": False,
+            "experiment": None,
+            "benchmark_family": None,
+            "status": None,
+            "include_artifacts": False,
+            "compactable_statuses": None,
+            "cleanup_auxiliary_dirs": True,
+        }
+    ]
+
+
+def test_observe_benchmark_reuses_equivalent_candidates_on_repeat_runs(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "print(json.dumps({'composite_adjustment': 0.0}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "repeat-benchmark",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}, {"name": "variant-b"}],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    runner = CliRunner()
+    first = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+        ],
+    )
+    second = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    first_payload = json.loads(first.stdout)
+    second_payload = json.loads(second.stdout)
+    assert [item["candidate_id"] for item in second_payload["variants"]] == [
+        item["candidate_id"] for item in first_payload["variants"]
+    ]
+    candidate_dirs = [path for path in candidates_root.iterdir() if path.is_dir()]
+    assert len(candidate_dirs) == 2
+
+
+def test_observe_benchmark_can_disable_auto_compaction(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+    calls: list[dict[str, object]] = []
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "print(json.dumps({'composite_adjustment': 0.0}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "auto-compact-disabled",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    def fake_compact_runs(*args, **kwargs) -> dict[str, object]:
+        calls.append({"args": args, "kwargs": kwargs})
+        return {"dry_run": False, "compacted_runs": []}
+
+    monkeypatch.setattr(cli_module, "compact_runs", fake_compact_runs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+            "--no-auto-compact-runs",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert "run_compaction" not in payload
+    assert calls == []
 
 
 def test_observe_benchmark_v2_surfaces_variant_metadata_and_task_scenarios(
@@ -303,7 +750,7 @@ def test_observe_benchmark_v2_surfaces_variant_metadata_and_task_scenarios(
                     },
                     "tags": ["memory", "method-change"],
                     "config_patch": {
-                        "contextatlas": {"memory": {"routing_mode": "freshness-biased"}}
+                        "memory": {"routing_mode": "freshness-biased"}
                     },
                 },
             ],
@@ -337,6 +784,7 @@ def test_observe_benchmark_v2_surfaces_variant_metadata_and_task_scenarios(
             str(task_set),
             "--spec",
             str(spec_path),
+            "--no-auto-compact-runs",
         ],
     )
 
@@ -509,6 +957,7 @@ def test_observe_benchmark_supports_code_patch_variants(tmp_path: Path) -> None:
             str(task_set),
             "--spec",
             str(spec_path),
+            "--no-auto-compact-runs",
         ],
     )
 
@@ -576,7 +1025,7 @@ def test_observe_benchmark_v2_reports_mechanism_and_validates_expected_signals(
                     "name": "freshness_method",
                     "variant_type": "method_family",
                     "config_patch": {
-                        "contextatlas": {"memory": {"routing_mode": "freshness-biased"}}
+                        "memory": {"routing_mode": "freshness-biased"}
                     },
                     "expected_signals": {
                         "fingerprints": {
@@ -609,7 +1058,7 @@ def test_observe_benchmark_v2_reports_mechanism_and_validates_expected_signals(
                                     "import json, os; "
                                     "from pathlib import Path; "
                                     "cfg = json.loads(Path(os.environ['META_HARNESS_RUN_DIR']).joinpath('effective_config.json').read_text(encoding='utf-8')); "
-                                    "routing = (((cfg.get('contextatlas') or {}).get('memory') or {}).get('routing_mode') or 'baseline'); "
+                                    "routing = ((cfg.get('memory') or {}).get('routing_mode') or 'baseline'); "
                                     "payload = {"
                                     "'fingerprints': {'memory.routing_mode': routing}, "
                                     "'probes': {'memory.stale_filtered_count': 2 if routing == 'freshness-biased' else 0, 'memory.routing_confidence': 0.91 if routing == 'freshness-biased' else 0.4}"
@@ -673,6 +1122,138 @@ def test_observe_benchmark_v2_reports_mechanism_and_validates_expected_signals(
             "missing_signals": [],
             "mismatch_signals": [],
         },
+    }
+
+
+def test_observe_benchmark_v2_preserves_probe_degradation_validation(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    (repo_root / "package.json").write_text(
+        '{"name":"demo","version":"1.0.0"}', encoding="utf-8"
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic"],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "probe-degradation-validation",
+            "baseline": "baseline",
+            "variants": [
+                {"name": "baseline"},
+                {
+                    "name": "memory_api_degraded",
+                    "variant_type": "method_family",
+                    "config_patch": {
+                        "memory": {"routing_mode": "legacy-incompatible"}
+                    },
+                },
+            ],
+        },
+    )
+    write_json(
+        task_set,
+        {
+            "tasks": [
+                {
+                    "task_id": "mechanism-task",
+                    "scenario": "memory_api_incompatible",
+                    "workdir": "${workspace_dir}",
+                    "phases": [
+                        {
+                            "phase": "benchmark_probe",
+                            "command": [
+                                "python",
+                                "-c",
+                                (
+                                    "import json, os; "
+                                    "from pathlib import Path; "
+                                    "cfg = json.loads(Path(os.environ['META_HARNESS_RUN_DIR']).joinpath('effective_config.json').read_text(encoding='utf-8')); "
+                                    "routing = ((cfg.get('memory') or {}).get('routing_mode') or 'baseline'); "
+                                    "degraded = routing == 'legacy-incompatible'; "
+                                    "payload = {"
+                                    "'fingerprints': {'memory.routing_mode': routing}, "
+                                    "'probes': {'memory.routing_confidence': 0.25 if degraded else 0.9}, "
+                                    "'validation': {'memory_lookup_degraded': degraded, 'memory_error': 'listFeatures is not a function' if degraded else None}"
+                                    "}; "
+                                    "print(json.dumps(payload))"
+                                ),
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    by_name = {item["name"]: item for item in payload["variants"]}
+    assert by_name["baseline"]["mechanism"]["probe_validation"] == {
+        "memory_lookup_degraded": False,
+        "memory_error": None,
+    }
+    assert by_name["memory_api_degraded"]["mechanism"]["probe_validation"] == {
+        "memory_lookup_degraded": True,
+        "memory_error": "listFeatures is not a function",
+    }
+    assert by_name["memory_api_degraded"]["mechanism"]["validation"] == {
+        "expected_signals_satisfied": True,
+        "missing_signals": [],
+        "mismatch_signals": [],
     }
 
 
@@ -864,7 +1445,7 @@ def test_observe_benchmark_can_limit_output_to_requested_metric_focus(
                 "import json",
                 "from pathlib import Path",
                 "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
-                "memory_enabled = ((payload.get('contextatlas') or {}).get('memory') or {}).get('enabled', True)",
+                "memory_enabled = (payload.get('memory') or {}).get('enabled', True)",
                 "print(json.dumps({",
                 "  'maintainability': {",
                 "    'profile_present': True,",
@@ -895,7 +1476,7 @@ def test_observe_benchmark_can_limit_output_to_requested_metric_focus(
         {
             "description": "workflow",
             "defaults": {
-                "contextatlas": {"memory": {"enabled": True}},
+                "memory": {"enabled": True},
                 "evaluation": {
                     "evaluators": ["basic", "command"],
                     "command_evaluators": [
@@ -930,7 +1511,7 @@ def test_observe_benchmark_can_limit_output_to_requested_metric_focus(
                 {"name": "memory_on"},
                 {
                     "name": "memory_off",
-                    "config_patch": {"contextatlas": {"memory": {"enabled": False}}},
+                    "config_patch": {"memory": {"enabled": False}},
                 },
             ],
         },
@@ -1621,6 +2202,280 @@ def test_observe_benchmark_downweights_high_cost_indexing_variants_in_ranking(
     }
 
 
+def test_observe_benchmark_reports_cost_stability_metrics_when_configured(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "from pathlib import Path",
+                "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
+                "run_meta = json.loads(Path('run_metadata.json').read_text(encoding='utf-8'))",
+                "variant = ((payload.get('proposal') or {}).get('variant_name') or 'baseline')",
+                "parity = int(str(run_meta.get('run_id', '0'))[-1], 16) % 2",
+                "if variant == 'noisy_cost':",
+                "    latency = 450.0 if parity == 0 else 180.0",
+                "    size = 910000 if parity == 0 else 420000",
+                "else:",
+                "    latency = 200.0",
+                "    size = 500000",
+                "print(json.dumps({",
+                "  'cost': {'index_build_latency_ms': latency, 'index_size_bytes': size},",
+                "  'composite_adjustment': 1.0",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                    "stability": {
+                        "min_repeats": 2,
+                        "max_composite_range": 0.5,
+                        "cost_weights": {
+                            "index_build_latency_ms": 0.0015,
+                            "index_size_bytes": 0.000001,
+                        },
+                        "max_cost_weighted_range": 0.2,
+                    },
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "cost-stability-reporting",
+            "baseline": "baseline",
+            "repeats": 2,
+            "variants": [
+                {"name": "baseline"},
+                {
+                    "name": "noisy_cost",
+                    "config_patch": {"proposal": {"variant_name": "noisy_cost"}},
+                },
+            ],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+            "--focus",
+            "indexing",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    by_name = {item["name"]: item for item in payload["variants"]}
+    assert by_name["baseline"]["stability"]["cost_weighted_range"] == 0.0
+    assert by_name["noisy_cost"]["stability"]["cost_weighted_range"] == 0.895
+    assert by_name["noisy_cost"]["stability"]["cost_weighted_stddev"] == 0.4475
+    assert by_name["noisy_cost"]["stability_assessment"] == {
+        "meets_min_repeats": True,
+        "is_stable": False,
+        "is_high_score_unstable": True,
+        "is_cost_stable": False,
+    }
+
+
+def test_observe_benchmark_downweights_high_score_cost_unstable_variants(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "from pathlib import Path",
+                "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
+                "run_meta = json.loads(Path('run_metadata.json').read_text(encoding='utf-8'))",
+                "variant = ((payload.get('proposal') or {}).get('variant_name') or 'baseline')",
+                "parity = int(str(run_meta.get('run_id', '0'))[-1], 16) % 2",
+                "if variant == 'spiky_cost':",
+                "    bonus = 2.0",
+                "    latency = 520.0 if parity == 0 else 180.0",
+                "    size = 960000 if parity == 0 else 430000",
+                "elif variant == 'steady_cost':",
+                "    bonus = 1.7",
+                "    latency = 240.0",
+                "    size = 520000",
+                "else:",
+                "    bonus = 0.5",
+                "    latency = 200.0",
+                "    size = 500000",
+                "print(json.dumps({",
+                "  'cost': {'index_build_latency_ms': latency, 'index_size_bytes': size},",
+                "  'composite_adjustment': bonus",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                    "stability": {
+                        "min_repeats": 2,
+                        "max_composite_range": 0.5,
+                        "high_score_threshold": 2.0,
+                        "unstable_high_score_penalty": 0.75,
+                        "cost_weights": {
+                            "index_build_latency_ms": 0.0015,
+                            "index_size_bytes": 0.000001,
+                        },
+                        "max_cost_weighted_range": 0.2,
+                    },
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "cost-stability-penalty",
+            "baseline": "baseline",
+            "repeats": 2,
+            "variants": [
+                {"name": "baseline"},
+                {
+                    "name": "spiky_cost",
+                    "config_patch": {"proposal": {"variant_name": "spiky_cost"}},
+                },
+                {
+                    "name": "steady_cost",
+                    "config_patch": {"proposal": {"variant_name": "steady_cost"}},
+                },
+            ],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--spec",
+            str(spec_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    by_name = {item["name"]: item for item in payload["variants"]}
+    assert by_name["spiky_cost"]["score"]["composite"] > by_name["steady_cost"]["score"][
+        "composite"
+    ]
+    assert by_name["spiky_cost"]["stability"]["cost_weighted_range"] == 1.04
+    assert by_name["spiky_cost"]["ranking_penalty"] > 0.0
+    assert by_name["spiky_cost"]["ranking_score"] < by_name["steady_cost"][
+        "ranking_score"
+    ]
+    assert payload["best_variant"] == "steady_cost"
+
+
 def test_observe_benchmark_emits_report_ready_summary_fields(tmp_path: Path) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
@@ -1879,7 +2734,7 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
                 "from pathlib import Path",
                 "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
                 "retrieval = payload.get('retrieval', {})",
-                "memory = ((payload.get('contextatlas') or {}).get('memory') or {})",
+                "memory = (payload.get('memory') or {})",
                 "top_k = int(retrieval.get('top_k', 8))",
                 "memory_enabled = memory.get('enabled', True)",
                 "routing_mode = memory.get('routing_mode', 'baseline')",
@@ -1927,7 +2782,7 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
             "description": "workflow",
             "defaults": {
                 "retrieval": {"top_k": 8},
-                "contextatlas": {"memory": {"enabled": True}},
+                "memory": {"enabled": True},
                 "evaluation": {
                     "evaluators": ["basic", "command"],
                     "command_evaluators": [
@@ -1977,16 +2832,14 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
                 {
                     "name": "freshness_bias",
                     "config_patch": {
-                        "contextatlas": {
-                            "memory": {
-                                "routing_mode": "freshness-biased",
-                            }
+                        "memory": {
+                            "routing_mode": "freshness-biased",
                         }
                     },
                 },
                 {
                     "name": "memory_off",
-                    "config_patch": {"contextatlas": {"memory": {"enabled": False}}},
+                    "config_patch": {"memory": {"enabled": False}},
                 },
             ],
         },
@@ -1994,7 +2847,7 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
     write_json(
         suite_path,
         {
-            "suite": "default-contextatlas-suite",
+            "suite": "default-memory-suite",
             "benchmarks": [
                 {"spec": str(spec_retrieval), "focus": "retrieval"},
                 {"spec": str(spec_memory), "focus": "memory"},
@@ -2028,7 +2881,7 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["suite"] == "default-contextatlas-suite"
+    assert payload["suite"] == "default-memory-suite"
     assert payload["benchmark_count"] == 2
     assert payload["best_by_experiment"] == {
         "retrieval-sweep": "retrieval_wide",
@@ -2045,6 +2898,384 @@ def test_observe_benchmark_suite_runs_multiple_specs_and_summarizes_results(
     assert [item["experiment"] for item in payload["benchmarks"]] == [
         "retrieval-sweep",
         "memory-sweep",
+    ]
+
+
+def test_observe_benchmark_suite_emits_transfer_dashboard_for_multiple_task_families(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "transfer_score.py"
+    spec_web = tmp_path / "web_transfer.json"
+    spec_analysis = tmp_path / "analysis_transfer.json"
+    suite_path = tmp_path / "suite.json"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "from pathlib import Path",
+                "payload = json.loads(Path('effective_config.json').read_text(encoding='utf-8'))",
+                "binding = ((payload.get('runtime') or {}).get('binding') or {}).get('binding_id', 'baseline')",
+                "workflow_primitives = (payload.get('workflow') or {}).get('primitives') or {}",
+                "if 'data_analysis' in workflow_primitives:",
+                "    primitive = 'data_analysis'",
+                "    success = 0.93 if 'claude' in binding else 0.71",
+                "    payload_rate = 0.96 if 'claude' in binding else 0.42",
+                "    reply_rate = 0.91 if 'claude' in binding else 0.33",
+                "    artifact_rate = 0.9 if 'claude' in binding else 0.4",
+                "    latency = 1500 if 'claude' in binding else 2100",
+                "else:",
+                "    primitive = 'web_scrape'",
+                "    success = 0.95 if 'claude' in binding else 0.74",
+                "    payload_rate = 0.98 if 'claude' in binding else 0.45",
+                "    reply_rate = 0.92 if 'claude' in binding else 0.36",
+                "    artifact_rate = 0.94 if 'claude' in binding else 0.41",
+                "    latency = 1300 if 'claude' in binding else 1900",
+                "print(json.dumps({",
+                "  'capability_scores': {",
+                "    primitive: {",
+                "      'success_rate': success,",
+                "      'latency_ms': latency,",
+                "      'binding_payload_rate': payload_rate,",
+                "      'assistant_reply_rate': reply_rate,",
+                "      'artifact_coverage_rate': artifact_rate",
+                "    }",
+                "  },",
+                "  'workflow_scores': {",
+                "    'binding_execution_rate': payload_rate,",
+                "    'method_trace_coverage_rate': artifact_rate",
+                "  },",
+                "  'composite_adjustment': 2.0 if 'claude' in binding else 0.3",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "transfer-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+                "runtime": {
+                    "binding": {
+                        "binding_id": "openclaw/codex/default",
+                    }
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {
+            "workflow": "workflow",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_web,
+        {
+            "experiment": "web-transfer",
+            "baseline": "source_binding",
+            "variants": [
+                {"name": "source_binding"},
+                {
+                    "name": "target_binding",
+                    "config_patch": {
+                        "runtime": {
+                            "binding": {
+                                "binding_id": "openclaw/claude/web_scrape",
+                            }
+                        }
+                    },
+                },
+            ],
+        },
+    )
+    write_json(
+        spec_analysis,
+        {
+            "experiment": "analysis-transfer",
+            "baseline": "source_binding",
+            "variants": [
+                {
+                    "name": "source_binding",
+                    "config_patch": {
+                        "workflow": {
+                            "primitives": {
+                                "data_analysis": {"analysis_mode": "sample_then_plan"}
+                            }
+                        }
+                    },
+                },
+                {
+                    "name": "target_binding",
+                    "config_patch": {
+                        "runtime": {
+                            "binding": {
+                                "binding_id": "openclaw/claude/data_analysis",
+                            }
+                        },
+                        "workflow": {
+                            "primitives": {
+                                "data_analysis": {"analysis_mode": "sample_then_plan"}
+                            }
+                        }
+                    },
+                },
+            ],
+        },
+    )
+    write_json(
+        suite_path,
+        {
+            "suite": "transfer-suite",
+            "benchmarks": [
+                {"spec": str(spec_web), "focus": "binding"},
+                {"spec": str(spec_analysis), "focus": "binding"},
+            ],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark-suite",
+            "--profile",
+            "workflow",
+            "--project",
+            "workflow_demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--suite",
+            str(suite_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    dashboard = payload["transfer_dashboard"]
+    assert dashboard["experiment_count"] == 2
+    assert dashboard["by_primitive"]["web_scrape"] == {
+        "experiment_count": 1,
+        "bindings": ["openclaw/claude/web_scrape"],
+        "average_binding_execution_rate": 0.98,
+        "average_method_trace_coverage_rate": 0.94,
+        "average_binding_payload_rate": 0.98,
+        "average_assistant_reply_rate": 0.92,
+        "average_artifact_coverage_rate": 0.94,
+    }
+    assert dashboard["by_primitive"]["data_analysis"] == {
+        "experiment_count": 1,
+        "bindings": ["openclaw/claude/data_analysis"],
+        "average_binding_execution_rate": 0.96,
+        "average_method_trace_coverage_rate": 0.9,
+        "average_binding_payload_rate": 0.96,
+        "average_assistant_reply_rate": 0.91,
+        "average_artifact_coverage_rate": 0.9,
+    }
+    assert dashboard["experiments"] == [
+        {
+            "experiment": "analysis-transfer",
+            "primitive_id": "data_analysis",
+            "best_variant": "target_binding",
+            "binding_id": "openclaw/claude/data_analysis",
+            "focus": "binding",
+            "binding_execution_rate": 0.96,
+            "method_trace_coverage_rate": 0.9,
+            "binding_payload_rate": 0.96,
+            "assistant_reply_rate": 0.91,
+            "artifact_coverage_rate": 0.9,
+        },
+        {
+            "experiment": "web-transfer",
+            "primitive_id": "web_scrape",
+            "best_variant": "target_binding",
+            "binding_id": "openclaw/claude/web_scrape",
+            "focus": "binding",
+            "binding_execution_rate": 0.98,
+            "method_trace_coverage_rate": 0.94,
+            "binding_payload_rate": 0.98,
+            "assistant_reply_rate": 0.92,
+            "artifact_coverage_rate": 0.94,
+        },
+    ]
+
+
+def test_observe_benchmark_suite_auto_compacts_runs_by_default(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "task_set.json"
+    evaluator_script = tmp_path / "score_from_config.py"
+    spec_path = tmp_path / "benchmark.json"
+    suite_path = tmp_path / "suite.json"
+    calls: list[dict[str, object]] = []
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "print(json.dumps({'composite_adjustment': 0.0}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "benchmark-score",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        spec_path,
+        {
+            "experiment": "suite-auto-compact",
+            "baseline": "baseline",
+            "variants": [{"name": "baseline"}],
+        },
+    )
+    write_json(
+        suite_path,
+        {
+            "suite": "compact-suite",
+            "benchmarks": [{"spec": str(spec_path)}],
+        },
+    )
+    make_task_set(task_set, workdir=str(repo_root))
+
+    def fake_compact_runs(
+        runs_root_arg: Path,
+        *,
+        candidates_root: Path | None = None,
+        dry_run: bool = False,
+        experiment: str | None = None,
+        benchmark_family: str | None = None,
+        status: str | None = None,
+        include_artifacts: bool = False,
+        compactable_statuses: list[str] | None = None,
+        cleanup_auxiliary_dirs: bool = True,
+    ) -> dict[str, object]:
+        calls.append(
+            {
+                "runs_root": runs_root_arg,
+                "candidates_root": candidates_root,
+                "dry_run": dry_run,
+                "experiment": experiment,
+                "benchmark_family": benchmark_family,
+                "status": status,
+                "include_artifacts": include_artifacts,
+                "compactable_statuses": compactable_statuses,
+                "cleanup_auxiliary_dirs": cleanup_auxiliary_dirs,
+            }
+        )
+        return {"dry_run": False, "compacted_runs": [{"run_id": "suite-old", "removed": ["workspace"]}]}
+
+    monkeypatch.setattr(cli_module, "compact_runs", fake_compact_runs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "benchmark-suite",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--suite",
+            str(suite_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["run_compaction"] == {
+        "dry_run": False,
+        "compacted_runs": [{"run_id": "suite-old", "removed": ["workspace"]}],
+    }
+    assert calls == [
+        {
+            "runs_root": runs_root,
+            "candidates_root": candidates_root,
+            "dry_run": False,
+            "experiment": None,
+            "benchmark_family": None,
+            "status": None,
+            "include_artifacts": False,
+            "compactable_statuses": None,
+            "cleanup_auxiliary_dirs": True,
+        }
     ]
 
 

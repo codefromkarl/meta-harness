@@ -6,8 +6,14 @@ from typing import Any
 
 from meta_harness.config_loader import load_effective_config
 
-
 DEFAULT_HEADROOM_THRESHOLDS: dict[str, dict[str, float]] = {
+    "binding": {
+        "binding_execution_rate": 0.9,
+        "method_trace_coverage_rate": 0.85,
+        "binding_payload_rate": 0.9,
+        "assistant_reply_rate": 0.85,
+        "artifact_coverage_rate": 0.85,
+    },
     "workflow": {
         "hot_path_success_rate": 0.9,
         "fallback_rate": 0.15,
@@ -73,8 +79,40 @@ class ObservationStrategy:
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
         retrieval = score.get("retrieval") or {}
+        capability_scores = score.get("capability_scores") or {}
+        transfer_capability = (
+            self._recommended_transfer_capability(score)
+            if isinstance(capability_scores, dict)
+            else {}
+        )
 
         gaps: list[str] = []
+
+        if (
+            (value := workflow.get("binding_execution_rate")) is not None
+            and float(value) < thresholds["binding"]["binding_execution_rate"]
+        ):
+            gaps.append("binding_execution_rate")
+        if (
+            (value := workflow.get("method_trace_coverage_rate")) is not None
+            and float(value) < thresholds["binding"]["method_trace_coverage_rate"]
+        ):
+            gaps.append("method_trace_coverage_rate")
+        if (
+            (value := transfer_capability.get("binding_payload_rate")) is not None
+            and float(value) < thresholds["binding"]["binding_payload_rate"]
+        ):
+            gaps.append("binding_payload_rate")
+        if (
+            (value := transfer_capability.get("assistant_reply_rate")) is not None
+            and float(value) < thresholds["binding"]["assistant_reply_rate"]
+        ):
+            gaps.append("assistant_reply_rate")
+        if (
+            (value := transfer_capability.get("artifact_coverage_rate")) is not None
+            and float(value) < thresholds["binding"]["artifact_coverage_rate"]
+        ):
+            gaps.append("artifact_coverage_rate")
 
         if (value := workflow.get("hot_path_success_rate")) is not None and float(
             value
@@ -132,6 +170,41 @@ class ObservationStrategy:
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
         retrieval = score.get("retrieval") or {}
+        capability_scores = score.get("capability_scores") or {}
+        transfer_capability = (
+            self._recommended_transfer_capability(score)
+            if isinstance(capability_scores, dict)
+            else {}
+        )
+
+        if focus == "binding":
+            gaps: list[str] = []
+            if (
+                (value := workflow.get("binding_execution_rate")) is not None
+                and float(value) < thresholds["binding"]["binding_execution_rate"]
+            ):
+                gaps.append("binding_execution_rate")
+            if (
+                (value := workflow.get("method_trace_coverage_rate")) is not None
+                and float(value) < thresholds["binding"]["method_trace_coverage_rate"]
+            ):
+                gaps.append("method_trace_coverage_rate")
+            if (
+                (value := transfer_capability.get("binding_payload_rate")) is not None
+                and float(value) < thresholds["binding"]["binding_payload_rate"]
+            ):
+                gaps.append("binding_payload_rate")
+            if (
+                (value := transfer_capability.get("assistant_reply_rate")) is not None
+                and float(value) < thresholds["binding"]["assistant_reply_rate"]
+            ):
+                gaps.append("assistant_reply_rate")
+            if (
+                (value := transfer_capability.get("artifact_coverage_rate")) is not None
+                and float(value) < thresholds["binding"]["artifact_coverage_rate"]
+            ):
+                gaps.append("artifact_coverage_rate")
+            return gaps
 
         if focus == "workflow":
             gaps: list[str] = []
@@ -222,6 +295,31 @@ class ObservationStrategy:
         workflow = score.get("workflow_scores") or {}
         maintainability = score.get("maintainability") or {}
         architecture = score.get("architecture") or {}
+        transfer_capability = self._recommended_transfer_capability(score)
+
+        if (
+            (
+                (value := workflow.get("binding_execution_rate")) is not None
+                and float(value) < thresholds["binding"]["binding_execution_rate"]
+            )
+            or (
+                (value := workflow.get("method_trace_coverage_rate")) is not None
+                and float(value) < thresholds["binding"]["method_trace_coverage_rate"]
+            )
+            or (
+                (value := transfer_capability.get("binding_payload_rate")) is not None
+                and float(value) < thresholds["binding"]["binding_payload_rate"]
+            )
+            or (
+                (value := transfer_capability.get("assistant_reply_rate")) is not None
+                and float(value) < thresholds["binding"]["assistant_reply_rate"]
+            )
+            or (
+                (value := transfer_capability.get("artifact_coverage_rate")) is not None
+                and float(value) < thresholds["binding"]["artifact_coverage_rate"]
+            )
+        ):
+            return "binding"
 
         if (
             (
@@ -325,6 +423,18 @@ class ObservationStrategy:
                 "metric_thresholds": thresholds["workflow"],
             }
 
+        if focus == "binding":
+            primitive_id = self._recommended_workflow_primitive(score)
+            return {
+                "focus": "binding",
+                **({"primitive_id": primitive_id} if primitive_id else {}),
+                "variant_type": "method_family",
+                "proposal_strategy": "explore_binding_patch",
+                "hypothesis": "improve binding execution fidelity so transferred task methods preserve payloads, assistant replies, and trace coverage across claws",
+                "gap_signals": gap_signals,
+                "metric_thresholds": thresholds["binding"],
+            }
+
         if focus == "indexing":
             return {
                 "focus": "indexing",
@@ -388,35 +498,45 @@ class ObservationStrategy:
 
         return sorted(capability_scores.items(), key=sort_key)[0][0]
 
-
-class ContextAtlasObservationStrategy(ObservationStrategy):
-    def needs_optimization(
+    def _recommended_transfer_capability(
         self,
         score: dict[str, Any],
-        thresholds: dict[str, dict[str, float]],
-    ) -> bool:
-        maintainability = score.get("maintainability") or {}
-        architecture = score.get("architecture") or {}
-        has_boolean_gap = any(
-            value is False
-            for value in (
-                maintainability.get("profile_present"),
-                maintainability.get("memory_consistency_ok"),
-                architecture.get("snapshot_ready"),
-                architecture.get("vector_index_ready"),
-                architecture.get("db_integrity_ok"),
+    ) -> dict[str, Any]:
+        capability_scores = score.get("capability_scores") or {}
+        if not isinstance(capability_scores, dict):
+            return {}
+
+        def has_transfer_metrics(payload: Any) -> bool:
+            if not isinstance(payload, dict):
+                return False
+            return any(
+                key in payload
+                for key in (
+                    "binding_payload_rate",
+                    "assistant_reply_rate",
+                    "artifact_coverage_rate",
+                )
             )
+
+        transfer_candidates = [
+            payload for payload in capability_scores.values() if has_transfer_metrics(payload)
+        ]
+        if not transfer_candidates:
+            return {}
+        ranked = sorted(
+            transfer_candidates,
+            key=lambda payload: (
+                float(payload.get("binding_payload_rate", 1.0)),
+                float(payload.get("assistant_reply_rate", 1.0)),
+                float(payload.get("artifact_coverage_rate", 1.0)),
+            ),
         )
-        return has_boolean_gap or bool(self.metric_gap_names(score, thresholds))
+        selected = ranked[0]
+        return selected if isinstance(selected, dict) else {}
 
 
 DEFAULT_OBSERVATION_STRATEGY = ObservationStrategy(
     name="default",
-    threshold_defaults=DEFAULT_HEADROOM_THRESHOLDS,
-)
-
-CONTEXTATLAS_OBSERVATION_STRATEGY = ContextAtlasObservationStrategy(
-    name="contextatlas",
     threshold_defaults=DEFAULT_HEADROOM_THRESHOLDS,
 )
 
@@ -426,24 +546,4 @@ def resolve_observation_strategy(
     profile_name: str,
     project_name: str,
 ) -> ObservationStrategy:
-    try:
-        effective_config = load_effective_config(
-            config_root=config_root,
-            profile_name=profile_name,
-            project_name=project_name,
-        )
-    except (FileNotFoundError, ValueError):
-        effective_config = {}
-
-    contextatlas_config = (
-        effective_config.get("contextatlas")
-        if isinstance(effective_config, dict)
-        else None
-    )
-    if contextatlas_config:
-        return CONTEXTATLAS_OBSERVATION_STRATEGY
-    if profile_name.startswith("contextatlas") or project_name.startswith(
-        "contextatlas"
-    ):
-        return CONTEXTATLAS_OBSERVATION_STRATEGY
     return DEFAULT_OBSERVATION_STRATEGY

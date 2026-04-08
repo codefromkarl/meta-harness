@@ -7,7 +7,7 @@ from meta_harness.evaluator_pack_registry import (
     list_evaluator_packs,
     load_registered_evaluator_pack,
 )
-from meta_harness.schemas import EvaluatorPack, WorkflowSpec
+from meta_harness.schemas import EvaluatorPack, PrimitivePack, WorkflowSpec
 
 
 def resolve_workflow_evaluator_packs(
@@ -20,7 +20,9 @@ def resolve_workflow_evaluator_packs(
             for pack_id in workflow_spec.evaluator_packs
         ]
 
-    primitive_ids = {step.primitive_id for step in workflow_spec.steps}
+    primitive_ids = {
+        step.primitive_id for step in workflow_spec.steps if step.primitive_id
+    }
     resolved: list[EvaluatorPack] = []
     for pack_id in list_evaluator_packs(config_root):
         pack = load_registered_evaluator_pack(config_root, pack_id)
@@ -63,3 +65,32 @@ def bind_evaluator_packs(
     evaluation["command_evaluators"] = existing_commands
     bound["evaluation"] = evaluation
     return bound
+
+
+def validate_evaluator_pack_bindings(
+    workflow_spec: WorkflowSpec,
+    packs: list[EvaluatorPack],
+    primitive_packs: dict[str, PrimitivePack],
+) -> None:
+    workflow_primitives = {
+        step.primitive_id for step in workflow_spec.steps if step.primitive_id
+    }
+    for pack in packs:
+        for primitive_id in sorted(workflow_primitives.intersection(pack.supported_primitives)):
+            primitive_pack = primitive_packs.get(primitive_id)
+            if primitive_pack is None:
+                continue
+            required_artifacts = set(
+                primitive_pack.evaluation_contract.artifact_requirements
+            )
+            if not required_artifacts:
+                continue
+            pack_artifacts = set(pack.artifact_requirements)
+            missing = sorted(required_artifacts - pack_artifacts)
+            if missing:
+                missing_text = ", ".join(missing)
+                raise ValueError(
+                    "evaluator pack artifact requirements are inconsistent: "
+                    f"pack '{pack.pack_id}' for primitive '{primitive_id}' "
+                    f"is missing [{missing_text}]"
+                )

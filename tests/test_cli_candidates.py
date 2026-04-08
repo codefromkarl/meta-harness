@@ -71,12 +71,25 @@ def test_candidate_create_promote_and_run_init_from_candidate(tmp_path: Path) ->
             candidate_id,
             "--candidates-root",
             str(candidates_root),
+            "--promoted-by",
+            "tester",
+            "--reason",
+            "benchmark winner",
+            "--evidence-run-id",
+            "run-1",
+            "--runs-root",
+            str(runs_root),
         ],
     )
     assert promote_result.exit_code == 0
 
     champions = json.loads((candidates_root / "champions.json").read_text(encoding="utf-8"))
     assert champions["java_to_rust:voidsector"] == candidate_id
+    champion_records = json.loads(
+        (candidates_root / "champion_records.json").read_text(encoding="utf-8")
+    )
+    assert champion_records["java_to_rust:voidsector"]["promoted_by"] == "tester"
+    assert champion_records["java_to_rust:voidsector"]["evidence_run_ids"] == ["run-1"]
 
     run_init_result = runner.invoke(
         app,
@@ -153,3 +166,100 @@ def test_candidate_create_persists_code_patch_artifact(tmp_path: Path) -> None:
     assert (candidate_dir / "code.patch").read_text(encoding="utf-8") == patch_file.read_text(
         encoding="utf-8"
     )
+
+
+def test_candidate_create_transfer_materializes_layered_transfer_candidate(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {"workflow": "base", "overrides": {}},
+    )
+    write_json(
+        config_root / "task_methods" / "web_scrape" / "fast_path.json",
+        {
+            "method_id": "web_scrape/fast_path",
+            "primitive_id": "web_scrape",
+            "portable_knobs": ["workflow.primitives.web_scrape.timeout_ms"],
+            "default_patch": {
+                "workflow": {
+                    "primitives": {
+                        "web_scrape": {
+                            "timeout_ms": 5000,
+                        }
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        config_root / "claw_bindings" / "openclaw" / "codex" / "web_scrape.json",
+        {
+            "binding_id": "openclaw/codex/web_scrape",
+            "claw_family": "openclaw",
+            "primitive_id": "web_scrape",
+            "adapter_kind": "openclaw_acp",
+            "binding_patch": {"runtime": {"binding": {"agent_id": "codex"}}},
+        },
+    )
+    write_json(
+        config_root / "claw_bindings" / "openclaw" / "claude" / "web_scrape.json",
+        {
+            "binding_id": "openclaw/claude/web_scrape",
+            "claw_family": "openclaw",
+            "primitive_id": "web_scrape",
+            "adapter_kind": "openclaw_acp",
+            "binding_patch": {"runtime": {"binding": {"agent_id": "claude"}}},
+        },
+    )
+
+    local_patch = tmp_path / "local_patch.json"
+    write_json(local_patch, {"runtime": {"binding": {"approval_policy": "never"}}})
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "create-transfer",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--method-id",
+            "web_scrape/fast_path",
+            "--source-binding-id",
+            "openclaw/codex/web_scrape",
+            "--target-binding-id",
+            "openclaw/claude/web_scrape",
+            "--local-patch",
+            str(local_patch),
+            "--notes",
+            "portable transfer",
+        ],
+    )
+
+    assert result.exit_code == 0
+    candidate_id = result.stdout.strip()
+    proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    effective_config = json.loads(
+        (candidates_root / candidate_id / "effective_config.json").read_text(encoding="utf-8")
+    )
+    assert proposal["transfer"]["validated_targets"] == ["openclaw/claude/web_scrape"]
+    assert effective_config["workflow"]["primitives"]["web_scrape"]["timeout_ms"] == 5000
+    assert effective_config["runtime"]["binding"]["agent_id"] == "claude"
+    assert effective_config["runtime"]["binding"]["approval_policy"] == "never"

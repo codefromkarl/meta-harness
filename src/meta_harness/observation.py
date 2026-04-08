@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from meta_harness.archive import list_run_records
+from meta_harness.loop.experience import list_experience_runs
 from meta_harness.observation_strategies import (
     ObservationStrategy,
     resolve_observation_strategy,
@@ -82,12 +82,11 @@ def list_observation_runs(
     profile_name: str,
     project_name: str,
 ) -> list[dict[str, Any]]:
-    runs = [
-        record
-        for record in list_run_records(runs_root)
-        if record.get("profile") == profile_name
-        and record.get("project") == project_name
-    ]
+    runs = list_experience_runs(
+        runs_root=runs_root,
+        profile_name=profile_name,
+        project_name=project_name,
+    )
     return sorted(runs, key=_sort_key, reverse=True)
 
 

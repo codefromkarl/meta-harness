@@ -48,18 +48,18 @@ def write_project_config(
 ) -> None:
     write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
     write_json(
-        config_root / "profiles" / "contextatlas_patch_repair.json",
+        config_root / "profiles" / "memory_patch_repair.json",
         {"description": "workflow", "defaults": {}},
     )
     project_payload = {
-        "workflow": "contextatlas_patch_repair",
+        "workflow": "memory_patch_repair",
         "overrides": {},
     }
     if threshold_overrides is not None:
         project_payload["overrides"]["optimization"] = {
             "headroom_thresholds": threshold_overrides
         }
-    write_json(config_root / "projects" / "contextatlas_patch.json", project_payload)
+    write_json(config_root / "projects" / "memory_patch.json", project_payload)
 
 
 def test_summarize_observation_reports_healthy_run(tmp_path: Path) -> None:
@@ -69,8 +69,8 @@ def test_summarize_observation_reports_healthy_run(tmp_path: Path) -> None:
     write_run(
         runs_root,
         "run-healthy",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {
@@ -95,8 +95,8 @@ def test_summarize_observation_reports_healthy_run(tmp_path: Path) -> None:
 
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
     )
 
@@ -112,7 +112,7 @@ def test_summarize_observation_reports_healthy_run(tmp_path: Path) -> None:
     assert summary["architecture_recommendation"] is None
 
 
-def test_resolve_observation_strategy_uses_contextatlas_workflow(
+def test_resolve_observation_strategy_returns_default_strategy(
     tmp_path: Path,
 ) -> None:
     config_root = tmp_path / "configs"
@@ -120,14 +120,14 @@ def test_resolve_observation_strategy_uses_contextatlas_workflow(
 
     strategy = resolve_observation_strategy(
         config_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
     )
 
-    assert strategy.name == "contextatlas"
+    assert strategy.name == "default"
 
 
-def test_summarize_observation_keeps_default_fallback_behavior_for_non_contextatlas_workflows(
+def test_summarize_observation_keeps_default_fallback_behavior_for_generic_workflows(
     tmp_path: Path,
 ) -> None:
     config_root = tmp_path / "configs"
@@ -189,8 +189,8 @@ def test_summarize_observation_reports_memory_metric_gap(tmp_path: Path) -> None
     write_run(
         runs_root,
         "run-memory-gap",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {
@@ -216,8 +216,8 @@ def test_summarize_observation_reports_memory_metric_gap(tmp_path: Path) -> None
 
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
     )
 
@@ -248,8 +248,8 @@ def test_summarize_observation_reports_retrieval_metric_gap(tmp_path: Path) -> N
     write_run(
         runs_root,
         "run-retrieval-gap",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {
@@ -277,8 +277,8 @@ def test_summarize_observation_reports_retrieval_metric_gap(tmp_path: Path) -> N
 
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
     )
 
@@ -310,8 +310,8 @@ def test_summarize_observation_reports_boolean_health_gap(tmp_path: Path) -> Non
     write_run(
         runs_root,
         "run-boolean-gap",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {
@@ -334,8 +334,8 @@ def test_summarize_observation_reports_boolean_health_gap(tmp_path: Path) -> Non
 
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
     )
 
@@ -373,8 +373,8 @@ def test_summarize_observation_respects_threshold_overrides(tmp_path: Path) -> N
     write_run(
         runs_root,
         "run-threshold-gap",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {
@@ -402,8 +402,8 @@ def test_summarize_observation_respects_threshold_overrides(tmp_path: Path) -> N
 
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
     )
 
@@ -420,8 +420,8 @@ def test_list_observation_runs_supports_limit_for_recent_history(
     write_run(
         runs_root,
         "run-old",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T08:00:00Z",
         score={
             "maintainability": {"profile_present": True, "memory_consistency_ok": True},
@@ -441,8 +441,8 @@ def test_list_observation_runs_supports_limit_for_recent_history(
     write_run(
         runs_root,
         "run-mid",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T09:00:00Z",
         score={
             "maintainability": {"profile_present": True, "memory_consistency_ok": True},
@@ -462,8 +462,8 @@ def test_list_observation_runs_supports_limit_for_recent_history(
     write_run(
         runs_root,
         "run-latest",
-        profile="contextatlas_patch_repair",
-        project="contextatlas_patch",
+        profile="memory_patch_repair",
+        project="memory_patch",
         created_at="2026-04-05T10:00:00Z",
         score={
             "maintainability": {"profile_present": True, "memory_consistency_ok": True},
@@ -483,13 +483,13 @@ def test_list_observation_runs_supports_limit_for_recent_history(
 
     runs = list_observation_runs(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
     )
     summary = summarize_observation(
         runs_root,
-        "contextatlas_patch_repair",
-        "contextatlas_patch",
+        "memory_patch_repair",
+        "memory_patch",
         config_root=config_root,
         limit=2,
     )
@@ -572,5 +572,79 @@ def test_summarize_observation_reports_generic_workflow_gap(tmp_path: Path) -> N
         "metric_thresholds": {
             "hot_path_success_rate": 0.9,
             "fallback_rate": 0.15,
+        },
+    }
+
+
+def test_summarize_observation_reports_binding_transfer_gap(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {"workflow": "workflow", "overrides": {}},
+    )
+    write_run(
+        runs_root,
+        "run-binding-gap",
+        profile="workflow",
+        project="workflow_demo",
+        created_at="2026-04-05T10:00:00Z",
+        score={
+            "maintainability": {},
+            "architecture": {},
+            "retrieval": {},
+            "workflow_scores": {
+                "hot_path_success_rate": 0.95,
+                "fallback_rate": 0.02,
+                "binding_execution_rate": 0.4,
+                "method_trace_coverage_rate": 0.35,
+            },
+            "capability_scores": {
+                "web_scrape": {
+                    "success_rate": 0.91,
+                    "latency_ms": 1800,
+                    "binding_payload_rate": 0.5,
+                    "assistant_reply_rate": 0.4,
+                    "artifact_coverage_rate": 0.45,
+                    "binding_token_total": 321.0,
+                }
+            },
+            "composite": 6.0,
+        },
+    )
+
+    summary = summarize_observation(
+        runs_root,
+        "workflow",
+        "workflow_demo",
+        config_root=config_root,
+    )
+
+    assert summary["needs_optimization"] is True
+    assert summary["recommended_focus"] == "binding"
+    assert summary["architecture_recommendation"] == {
+        "focus": "binding",
+        "primitive_id": "web_scrape",
+        "variant_type": "method_family",
+        "proposal_strategy": "explore_binding_patch",
+        "hypothesis": "improve binding execution fidelity so transferred task methods preserve payloads, assistant replies, and trace coverage across claws",
+        "gap_signals": [
+            "binding_execution_rate",
+            "method_trace_coverage_rate",
+            "binding_payload_rate",
+            "assistant_reply_rate",
+            "artifact_coverage_rate",
+        ],
+        "metric_thresholds": {
+            "binding_execution_rate": 0.9,
+            "method_trace_coverage_rate": 0.85,
+            "binding_payload_rate": 0.9,
+            "assistant_reply_rate": 0.85,
+            "artifact_coverage_rate": 0.85,
         },
     }

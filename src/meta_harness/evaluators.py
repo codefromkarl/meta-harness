@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from meta_harness.schemas import ScoreReport
+from meta_harness.template_utils import _build_template_context, _resolve_template
 
 
 class Evaluator:
@@ -97,6 +100,58 @@ class BasicEvaluator(Evaluator):
 class CommandEvaluator(Evaluator):
     name = "command"
 
+    @staticmethod
+    def _artifact_dir(run_dir: Path, index: int, name: str) -> Path:
+        safe = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in name)
+        safe = safe.strip("-") or f"evaluator-{index + 1}"
+        return run_dir / "evaluators" / "command_artifacts" / f"{index + 1:02d}-{safe}"
+
+    @staticmethod
+    def _resolve_command(run_dir: Path, command: list[Any]) -> list[str]:
+        effective_config_path = run_dir / "effective_config.json"
+        effective_config: dict[str, Any] = {}
+        source_repo: Path | None = None
+        if effective_config_path.exists():
+            effective_config = json.loads(
+                effective_config_path.read_text(encoding="utf-8")
+            )
+            workspace = (effective_config.get("runtime") or {}).get("workspace") or {}
+            source_repo_value = workspace.get("source_repo")
+            if isinstance(source_repo_value, str) and source_repo_value:
+                source_repo = Path(source_repo_value).expanduser().resolve()
+        templating_context = _build_template_context(
+            run_dir,
+            effective_config=effective_config,
+        )
+        command = _resolve_template(command, templating_context)
+
+        resolved: list[str] = []
+        for index, raw_arg in enumerate(command):
+            arg = str(raw_arg)
+            if source_repo is None or arg.startswith("-"):
+                resolved.append(arg)
+                continue
+
+            candidate = Path(arg)
+            if candidate.is_absolute() or (run_dir / candidate).exists():
+                resolved.append(arg)
+                continue
+
+            source_candidate = source_repo / arg
+            if index == 0:
+                if source_candidate.exists() and os.access(source_candidate, os.X_OK):
+                    resolved.append(str(source_candidate))
+                else:
+                    resolved.append(arg)
+                continue
+
+            if source_candidate.exists():
+                resolved.append(str(source_candidate))
+            else:
+                resolved.append(arg)
+
+        return resolved
+
     def evaluate(
         self, run_dir: Path, evaluation_config: dict[str, Any] | None = None
     ) -> dict:
@@ -115,13 +170,38 @@ class CommandEvaluator(Evaluator):
         probes: dict[str, Any] = {}
         composite_adjustment = 0.0
 
-        for config in configs:
+        for index, config in enumerate(configs):
+            artifact_dir = self._artifact_dir(run_dir, index, str(config["name"]))
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            resolved_command = self._resolve_command(run_dir, config["command"])
+            started_at = time.perf_counter()
             completed = subprocess.run(
-                config["command"],
+                resolved_command,
                 cwd=run_dir,
                 capture_output=True,
                 text=True,
                 check=False,
+            )
+            duration_ms = round((time.perf_counter() - started_at) * 1000)
+            (artifact_dir / "stdout.txt").write_text(
+                completed.stdout,
+                encoding="utf-8",
+            )
+            (artifact_dir / "stderr.txt").write_text(
+                completed.stderr,
+                encoding="utf-8",
+            )
+            (artifact_dir / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "name": str(config["name"]),
+                        "command": resolved_command,
+                        "returncode": completed.returncode,
+                        "duration_ms": duration_ms,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
             )
             if completed.returncode != 0:
                 raise RuntimeError(
@@ -129,6 +209,10 @@ class CommandEvaluator(Evaluator):
                 )
 
             payload = json.loads(completed.stdout.strip() or "{}")
+            (artifact_dir / "payload.json").write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
             maintainability.update(payload.get("maintainability", {}))
             architecture.update(payload.get("architecture", {}))
             retrieval.update(payload.get("retrieval", {}))

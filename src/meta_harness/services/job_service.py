@@ -99,10 +99,14 @@ def create_job_record(
     job_input: dict[str, Any] | None = None,
     requested_by: str | None = None,
     job_id: str | None = None,
+    parent_job_id: str | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
     payload = JobRecord(
         job_id=job_id or uuid4().hex[:12],
         job_type=job_type,
+        parent_job_id=parent_job_id,
+        attempt=attempt,
         requested_by=requested_by,
         job_input=job_input or {},
     )
@@ -161,6 +165,40 @@ def cancel_job_record(*, reports_root: Path, job_id: str) -> dict[str, Any]:
     return _write_job(_job_path(reports_root, job_id), current)
 
 
+def load_job_result_payload(
+    *,
+    reports_root: Path,
+    job_id: str,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    job = load_job_record(reports_root=reports_root, job_id=job_id)
+    result_ref = job.get("result_ref")
+    if not isinstance(result_ref, dict):
+        raise FileNotFoundError(f"job '{job_id}' has no result_ref")
+
+    target_type = result_ref.get("target_type")
+    target_id = result_ref.get("target_id")
+    path = result_ref.get("path")
+    payload: dict[str, Any] = {
+        "job_id": job_id,
+        "target_type": target_type,
+        "target_id": target_id,
+    }
+    if not isinstance(path, str) or not path:
+        payload["artifact"] = None
+        return payload
+
+    artifact_path = Path(path)
+    resolved_root = repo_root or reports_root.parent
+    if not artifact_path.is_absolute():
+        artifact_path = (resolved_root / artifact_path).resolve()
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"result artifact for job '{job_id}' not found")
+    payload["path"] = str(artifact_path)
+    payload["artifact"] = json.loads(artifact_path.read_text(encoding="utf-8"))
+    return payload
+
+
 def _result_preview(
     result_ref: dict[str, Any] | None,
     *,
@@ -210,6 +248,18 @@ def _result_preview(
         best_by_experiment = payload.get("best_by_experiment")
         if best_by_experiment is not None:
             preview["best_by_experiment"] = best_by_experiment
+        return preview
+
+    if target_type == "loop":
+        for key in (
+            "best_candidate_id",
+            "best_run_id",
+            "iteration_count",
+            "stop_reason",
+        ):
+            value = payload.get(key)
+            if value is not None:
+                preview[key] = value
         return preview
 
     return preview

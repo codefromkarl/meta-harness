@@ -14,6 +14,7 @@ def _load_trace_context(run_dir: Path, task_id: str) -> dict[str, str | None]:
     return {
         "run_id": str(metadata.get("run_id") or run_dir.name),
         "task_id": task_id,
+        "session_ref": f"session://{str(metadata.get('run_id') or run_dir.name)}/{task_id}",
         "candidate_id": (
             str(metadata["candidate_id"]) if metadata.get("candidate_id") is not None else None
         ),

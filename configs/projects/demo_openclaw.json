@@ -1,0 +1,10 @@
+{
+  "workflow": "demo_openclaw",
+  "overrides": {
+    "runtime": {
+      "workspace": {
+        "source_repo": "${meta_harness.repo_root}"
+      }
+    }
+  }
+}

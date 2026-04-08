@@ -332,6 +332,103 @@ def test_observe_once_auto_propose_creates_candidate_when_needed(
     }
 
 
+def test_observe_once_auto_propose_can_use_llm_harness_config(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "observe_task_set.json"
+    llm_script = tmp_path / "llm_harness_generator.py"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {"evaluation": {"evaluators": ["basic"]}}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                },
+                "optimization": {
+                    "llm_harness": {
+                        "command": ["python", str(llm_script)],
+                        "model": "gpt-test",
+                    }
+                },
+            },
+        },
+    )
+    llm_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "import sys",
+                "payload = json.load(sys.stdin)",
+                "assert payload['model'] == 'gpt-test'",
+                "assert 'matching_runs' in payload['user_prompt']",
+                "print(json.dumps({",
+                "  'notes': 'observe auto propose via llm harness',",
+                "  'proposal': {",
+                "    'strategy': 'observe_llm_harness',",
+                "    'model': payload['model']",
+                "  },",
+                "  'config_patch': {",
+                "    'optimization': {'focus': 'retrieval'}",
+                "  }",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    make_observe_task_set(task_set, ["python", "-c", "pass"], workdir=str(repo_root))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "once",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--auto-propose",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["needs_optimization"] is True
+    assert payload["triggered_optimization"] is True
+    assert payload["candidate_id"]
+
+    proposal = json.loads(
+        (candidates_root / str(payload["candidate_id"]) / "proposal.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert proposal["strategy"] == "observe_llm_harness"
+    assert proposal["model"] == "gpt-test"
+
+
 def test_observe_once_auto_propose_creates_builtin_method_family_candidate_without_proposal_command(
     tmp_path: Path,
 ) -> None:
@@ -459,3 +556,205 @@ def test_observe_once_auto_propose_creates_builtin_method_family_candidate_witho
     assert effective_config["optimization"]["architecture_recommendation"] == payload[
         "architecture_recommendation"
     ]
+
+
+def test_observe_once_auto_propose_creates_transfer_candidate_and_shadow_runs_target_binding(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    repo_root = tmp_path / "repo"
+    task_set = tmp_path / "observe_task_set.json"
+    evaluator_script = tmp_path / "binding_gap.py"
+
+    repo_root.mkdir(parents=True, exist_ok=True)
+    evaluator_script.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "print(json.dumps({",
+                "  'workflow_scores': {",
+                "    'hot_path_success_rate': 0.95,",
+                "    'fallback_rate': 0.02,",
+                "    'binding_execution_rate': 0.4,",
+                "    'method_trace_coverage_rate': 0.35",
+                "  },",
+                "  'capability_scores': {",
+                "    'web_scrape': {",
+                "      'success_rate': 0.91,",
+                "      'latency_ms': 1800,",
+                "      'binding_payload_rate': 0.5,",
+                "      'assistant_reply_rate': 0.4,",
+                "      'artifact_coverage_rate': 0.45,",
+                "      'binding_token_total': 321.0",
+                "    }",
+                "  }",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {
+            "description": "workflow",
+            "defaults": {
+                "runtime": {
+                    "binding": {
+                        "binding_id": "openclaw/codex/web_scrape",
+                        "adapter_kind": "command",
+                        "command": ["python", "-c", "print('source-binding-run')"],
+                    }
+                },
+                "evaluation": {
+                    "evaluators": ["basic", "command"],
+                    "command_evaluators": [
+                        {
+                            "name": "binding-gap",
+                            "command": ["python", str(evaluator_script)],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {
+            "workflow": "workflow",
+            "overrides": {
+                "runtime": {
+                    "workspace": {
+                        "source_repo": str(repo_root),
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        config_root / "task_methods" / "web_scrape" / "fast_path.json",
+        {
+            "method_id": "web_scrape/fast_path",
+            "primitive_id": "web_scrape",
+            "portable_knobs": ["workflow.primitives.web_scrape.timeout_ms"],
+            "default_patch": {
+                "workflow": {
+                    "primitives": {
+                        "web_scrape": {
+                            "timeout_ms": 5000,
+                        }
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        config_root / "claw_bindings" / "openclaw" / "codex" / "web_scrape.json",
+        {
+            "binding_id": "openclaw/codex/web_scrape",
+            "claw_family": "openclaw",
+            "primitive_id": "web_scrape",
+            "adapter_kind": "command",
+            "execution": {
+                "command": ["python", "-c", "print('source-binding-run')"],
+            },
+            "binding_patch": {
+                "runtime": {
+                    "binding": {
+                        "binding_id": "openclaw/codex/web_scrape",
+                        "adapter_kind": "command",
+                        "command": ["python", "-c", "print('source-binding-run')"],
+                    }
+                }
+            },
+        },
+    )
+    write_json(
+        config_root / "claw_bindings" / "openclaw" / "claude" / "web_scrape.json",
+        {
+            "binding_id": "openclaw/claude/web_scrape",
+            "claw_family": "openclaw",
+            "primitive_id": "web_scrape",
+            "adapter_kind": "command",
+            "execution": {
+                "command": ["python", "-c", "print('target-binding-run')"],
+            },
+            "binding_patch": {
+                "runtime": {
+                    "binding": {
+                        "binding_id": "openclaw/claude/web_scrape",
+                        "adapter_kind": "command",
+                        "command": ["python", "-c", "print('target-binding-run')"],
+                    }
+                }
+            },
+        },
+    )
+    make_observe_task_set(
+        task_set,
+        ["python", "-c", "raise SystemExit(9)"],
+        workdir=str(repo_root),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "observe",
+            "once",
+            "--profile",
+            "workflow",
+            "--project",
+            "workflow_demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--task-set",
+            str(task_set),
+            "--auto-propose",
+            "--method-id",
+            "web_scrape/fast_path",
+            "--target-binding-id",
+            "openclaw/claude/web_scrape",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+
+    assert payload["needs_optimization"] is True
+    assert payload["recommended_focus"] == "binding"
+    assert payload["triggered_optimization"] is True
+    assert payload["triggered_shadow_run"] is True
+    assert payload["candidate_id"]
+    assert payload["shadow_run_id"]
+    assert payload["source_binding_id"] == "openclaw/codex/web_scrape"
+    assert payload["target_binding_id"] == "openclaw/claude/web_scrape"
+
+    candidate_dir = candidates_root / str(payload["candidate_id"])
+    proposal = json.loads((candidate_dir / "proposal.json").read_text(encoding="utf-8"))
+    assert proposal["source_binding_id"] == "openclaw/codex/web_scrape"
+    assert proposal["target_binding_id"] == "openclaw/claude/web_scrape"
+
+    source_stdout = (
+        runs_root
+        / str(payload["run_id"])
+        / "tasks"
+        / "observe-task"
+        / "prepare.stdout.txt"
+    ).read_text(encoding="utf-8").strip()
+    shadow_stdout = (
+        runs_root
+        / str(payload["shadow_run_id"])
+        / "tasks"
+        / "observe-task"
+        / "prepare.stdout.txt"
+    ).read_text(encoding="utf-8").strip()
+    assert source_stdout == "source-binding-run"
+    assert shadow_stdout == "target-binding-run"

@@ -1,0 +1,68 @@
+{
+  "strategy_id": "web_scrape/selector-only",
+  "title": "Selector Only",
+  "source": "reference://web_scrape/selector_only",
+  "category": "web_scrape",
+  "primitive_id": "web_scrape",
+  "capability_metadata": {
+    "page_profile": {
+      "complexity": "low",
+      "render_required": false,
+      "interaction_required": false,
+      "anti_bot_level": "low",
+      "schema_stability": "high"
+    },
+    "workload_profile": {
+      "mode": "recurring",
+      "usage_mode": "recurring",
+      "batch_size": 50,
+      "latency_sla_ms": 3000,
+      "freshness_requirement": "high",
+      "allowed_failure_rate": "low"
+    }
+  },
+  "priority": 5,
+  "change_type": "config_only",
+  "variant_type": "method_family",
+  "variant_name": "selector_only",
+  "hypothesis": "Stable low-complexity pages should be extracted with selectors to minimize AI usage and improve repeatability.",
+  "expected_benefits": [
+    "lowest token cost",
+    "highest repeatability",
+    "simpler maintenance for stable schemas"
+  ],
+  "expected_costs": [
+    "requires selector upkeep when layout changes",
+    "less robust on content-heavy changes"
+  ],
+  "config_patch": {
+    "workflow": {
+      "primitives": {
+        "web_scrape": {
+          "pipeline": "selector_only",
+          "selector_refresh": "ai-assisted",
+          "timeout_ms": 5000
+        }
+      }
+    }
+  },
+  "expected_signals": {
+    "fingerprints": {
+      "scrape.mode": "selector"
+    },
+    "probes": {
+      "scrape.retry_count": {
+        "max": 1
+      }
+    }
+  },
+  "risk_notes": [
+    "best fit for stable schemas and recurring workloads"
+  ],
+  "tags": [
+    "web_scrape",
+    "selector",
+    "recurring",
+    "low-complexity"
+  ]
+}

@@ -60,6 +60,13 @@ def test_append_trace_event_preserves_v2_fields_and_enriches_context(
             "phase": "tool_call",
             "status": "completed",
             "latency_ms": 7,
+            "session_ref": "session://demo/run456/task-b",
+            "candidate_harness_id": "candidate-harness-001",
+            "proposal_id": "proposal-42",
+            "iteration_id": "iter-7",
+            "wrapper_path": "/tmp/harness-wrapper.py",
+            "source_artifacts": ["/tmp/harness-wrapper.py"],
+            "provenance": {"source": "test-suite"},
             "model": "gpt-5.4",
             "prompt_ref": "prompts/retrieve@v2",
             "tool_name": "codebase-retrieval",
@@ -77,6 +84,13 @@ def test_append_trace_event_preserves_v2_fields_and_enriches_context(
     assert payload["run_id"] == "run456"
     assert payload["task_id"] == "task-b"
     assert payload["candidate_id"] == "cand-001"
+    assert payload["session_ref"] == "session://demo/run456/task-b"
+    assert payload["candidate_harness_id"] == "candidate-harness-001"
+    assert payload["proposal_id"] == "proposal-42"
+    assert payload["iteration_id"] == "iter-7"
+    assert payload["wrapper_path"] == "/tmp/harness-wrapper.py"
+    assert payload["source_artifacts"] == ["/tmp/harness-wrapper.py"]
+    assert payload["provenance"] == {"source": "test-suite"}
     assert payload["model"] == "gpt-5.4"
     assert payload["prompt_ref"] == "prompts/retrieve@v2"
     assert payload["tool_name"] == "codebase-retrieval"
@@ -84,3 +98,28 @@ def test_append_trace_event_preserves_v2_fields_and_enriches_context(
     assert payload["retrieval_refs"] == ["mem://m1", "code://f1"]
     assert payload["artifact_refs"] == ["artifacts/request.json"]
     assert payload["token_usage"] == {"input_tokens": 12, "output_tokens": 5}
+
+
+def test_append_trace_event_backfills_session_ref_when_missing(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "run789"
+    (run_dir / "tasks").mkdir(parents=True)
+    (run_dir / "run_metadata.json").write_text(
+        json.dumps({"run_id": "run789", "profile": "base", "project": "demo"}),
+        encoding="utf-8",
+    )
+
+    append_trace_event(
+        run_dir=run_dir,
+        task_id="task-z",
+        event={
+            "step_id": "step-1",
+            "phase": "analysis",
+            "status": "completed",
+        },
+    )
+
+    payload = json.loads(
+        (run_dir / "tasks" / "task-z" / "steps.jsonl").read_text(encoding="utf-8")
+    )
+
+    assert payload["session_ref"] == "session://run789/task-z"

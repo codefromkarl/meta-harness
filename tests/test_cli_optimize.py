@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 import subprocess
 
+import pytest
 from typer.testing import CliRunner
 
 from meta_harness.cli import app
 from meta_harness.optimizer import propose_candidate_from_architecture_recommendation
+from meta_harness.services.optimize_loop_service import optimize_loop_payload
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -141,10 +143,199 @@ def test_optimize_propose_creates_candidate_from_failed_runs(tmp_path: Path) -> 
             encoding="utf-8"
         )
     )
+    proposal_records = [path for path in (tmp_path / "proposals").iterdir() if path.is_dir()]
 
     assert proposal["strategy"] == "increase_budget_on_repeated_failures"
+    assert proposal["proposal_id"]
     assert proposal["source_runs"] == ["run-a", "run-b"]
     assert effective_config["budget"]["max_turns"] == 18
+    assert len(proposal_records) == 1
+
+
+def test_optimize_propose_can_create_proposal_without_materializing_candidate(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    proposals_root = tmp_path / "proposals"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "java_to_rust.json",
+        {"description": "workflow", "defaults": {"retrieval": {"top_k": 8}}},
+    )
+    write_json(
+        config_root / "projects" / "voidsector.json",
+        {"workflow": "java_to_rust", "overrides": {"budget": {"max_turns": 16}}},
+    )
+    make_failed_run(runs_root, "run-a", "Trait bound `Foo: Clone` is not satisfied")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "propose",
+            "--profile",
+            "java_to_rust",
+            "--project",
+            "voidsector",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--proposals-root",
+            str(proposals_root),
+            "--proposal-only",
+        ],
+    )
+
+    assert result.exit_code == 0
+    proposal_id = result.stdout.strip()
+    proposal_record = json.loads(
+        (proposals_root / proposal_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    proposal_evaluation = json.loads(
+        (proposals_root / proposal_id / "proposal_evaluation.json").read_text(encoding="utf-8")
+    )
+    assert proposal_record["status"] == "proposed"
+    assert proposal_record["candidate_id"] is None
+    assert proposal_evaluation["selected"] is True
+    assert proposal_evaluation["selection_reason"] == "proposal_only"
+    assert not candidates_root.exists()
+
+
+def test_optimize_materialize_proposal_creates_candidate_from_proposal_artifact(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    proposals_root = tmp_path / "proposals"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "java_to_rust.json",
+        {"description": "workflow", "defaults": {"retrieval": {"top_k": 8}}},
+    )
+    write_json(
+        config_root / "projects" / "voidsector.json",
+        {"workflow": "java_to_rust", "overrides": {"budget": {"max_turns": 16}}},
+    )
+    make_failed_run(runs_root, "run-a", "Trait bound `Foo: Clone` is not satisfied")
+
+    runner = CliRunner()
+    propose = runner.invoke(
+        app,
+        [
+            "optimize",
+            "propose",
+            "--profile",
+            "java_to_rust",
+            "--project",
+            "voidsector",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--proposals-root",
+            str(proposals_root),
+            "--proposal-only",
+        ],
+    )
+    proposal_id = propose.stdout.strip()
+    materialize = runner.invoke(
+        app,
+        [
+            "optimize",
+            "materialize-proposal",
+            "--proposal-id",
+            proposal_id,
+            "--proposals-root",
+            str(proposals_root),
+            "--candidates-root",
+            str(candidates_root),
+            "--config-root",
+            str(config_root),
+        ],
+    )
+
+    assert propose.exit_code == 0
+    assert materialize.exit_code == 0
+    candidate_id = materialize.stdout.strip()
+    proposal_record = json.loads(
+        (proposals_root / proposal_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    proposal_evaluation = json.loads(
+        (proposals_root / proposal_id / "proposal_evaluation.json").read_text(encoding="utf-8")
+    )
+    candidate_proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    assert proposal_record["status"] == "materialized"
+    assert proposal_record["candidate_id"] == candidate_id
+    assert proposal_evaluation["selected"] is True
+    assert proposal_evaluation["materialized_candidate_id"] == candidate_id
+    assert candidate_proposal["proposal_id"] == proposal_id
+
+
+def test_optimize_cli_can_list_and_show_proposals(tmp_path: Path) -> None:
+    proposals_root = tmp_path / "proposals"
+    proposal_dir = proposals_root / "proposal-1"
+    proposal_dir.mkdir(parents=True, exist_ok=True)
+    (proposal_dir / "proposal.json").write_text(
+        json.dumps(
+            {
+                "proposal_id": "proposal-1",
+                "profile": "java_to_rust",
+                "project": "voidsector",
+                "proposer_kind": "heuristic_failure_family",
+                "strategy": "increase_budget_on_repeated_failures",
+                "status": "proposed",
+                "proposal": {"strategy": "increase_budget_on_repeated_failures"},
+                "source_run_ids": ["run-a"],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    listed = runner.invoke(
+        app,
+        [
+            "optimize",
+            "list-proposals",
+            "--proposals-root",
+            str(proposals_root),
+            "--project",
+            "voidsector",
+        ],
+    )
+    shown = runner.invoke(
+        app,
+        [
+            "optimize",
+            "show-proposal",
+            "--proposal-id",
+            "proposal-1",
+            "--proposals-root",
+            str(proposals_root),
+        ],
+    )
+
+    assert listed.exit_code == 0
+    assert shown.exit_code == 0
+    listed_payload = json.loads(listed.stdout)
+    shown_payload = json.loads(shown.stdout)
+    assert listed_payload[0]["proposal_id"] == "proposal-1"
+    assert shown_payload["proposal_id"] == "proposal-1"
+    assert shown_payload["strategy"] == "increase_budget_on_repeated_failures"
 
 
 def test_optimize_propose_reuses_equivalent_candidate_on_repeat_invocation(
@@ -385,8 +576,9 @@ def test_optimize_propose_can_read_history_from_configured_source_pairs(
     assert proposal["source_runs"] == ["run-maint-a"]
 
 
-def test_optimize_propose_passes_run_context_to_proposal_command(
+def test_optimize_propose_resolves_env_backed_proposal_command(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
@@ -398,94 +590,38 @@ def test_optimize_propose_passes_run_context_to_proposal_command(
             [
                 "from __future__ import annotations",
                 "import json",
-                "import sys",
-                "payload = json.load(sys.stdin)",
-                "run = payload['matching_runs'][0]",
-                "assert run['run_context']['tasks'][0]['task_id'] == 'task-a'",
-                "assert run['run_context']['tasks'][0]['success'] is True",
-                "assert run['run_context']['tasks'][0]['completed_phases'] == 3",
-                "assert run['run_context']['contextatlas']['profile_present'] is True",
-                "assert run['run_context']['contextatlas']['memory_consistency_ok'] is True",
-                "assert run['run_context']['contextatlas']['latest_profile_source'] == '.omc/project-memory.json'",
-                "assert run['run_context']['contextatlas']['catalog_stats']['module_count'] == 2",
-                "assert run['run_context']['contextatlas']['targeted_tests_ok'] is True",
-                "print(json.dumps({",
-                "  'notes': 'run context proposal',",
-                "  'proposal': {",
-                "    'strategy': 'run_context_command',",
-                "    'source_runs': [run['run_id']]",
-                "  }",
-                "}))",
+                "import os",
+                "print(json.dumps({'notes': 'env resolved proposal', 'proposal': {'strategy': 'env_command', 'marker': os.environ.get('PROPOSAL_MARKER')}}))",
             ]
         ),
         encoding="utf-8",
     )
+    monkeypatch.setenv("META_HARNESS_PROPOSAL_SCRIPT", str(script_path))
+    monkeypatch.setenv("PROPOSAL_MARKER", "ready")
 
     write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
     write_json(
-        config_root / "profiles" / "contextatlas_patch_repair.json",
+        config_root / "profiles" / "base.json",
         {"description": "workflow", "defaults": {}},
     )
     write_json(
-        config_root / "projects" / "contextatlas_patch.json",
+        config_root / "projects" / "demo.json",
         {
-            "workflow": "contextatlas_patch_repair",
+            "workflow": "base",
             "overrides": {
                 "optimization": {
-                    "proposal_command": ["python", str(script_path)],
+                    "proposal_command": ["python", "${env.META_HARNESS_PROPOSAL_SCRIPT}"],
                 }
             },
         },
     )
 
-    run_dir = runs_root / "run-ctx"
-    task_dir = run_dir / "tasks" / "task-a"
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
-    write_json(
-        run_dir / "run_metadata.json",
-        {
-            "run_id": "run-ctx",
-            "profile": "contextatlas_patch_repair",
-            "project": "contextatlas_patch",
-            "created_at": "2026-04-05T10:00:00Z",
-        },
-    )
-    write_json(
-        run_dir / "effective_config.json",
-        {"budget": {"max_turns": 14}, "evaluation": {"evaluators": ["basic"]}},
-    )
-    write_json(
-        task_dir / "task_result.json",
-        {
-            "task_id": "task-a",
-            "success": True,
-            "completed_phases": 3,
-            "failed_phase": None,
-        },
-    )
-    (task_dir / "show_profile.stderr.txt").write_text(
-        "\n".join(
-            [
-                "项目：workspace",
-                "描述：Imported from .omc/project-memory.json",
-                "最后更新：2026/4/5 09:30:00",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (task_dir / "check_memory.stderr.txt").write_text(
-        "\n".join(
-            [
-                'Catalog 构建完成 {"moduleCount":2,"scopeCount":1}',
-                "memory consistency check: OK",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (task_dir / "test_omc_import.stdout.txt").write_text(
-        "tests 2\npass 2\nfail 0\n",
-        encoding="utf-8",
+    make_failed_run(
+        runs_root,
+        "run-a",
+        "Profile show command returned empty output",
+        profile="base",
+        project="demo",
     )
 
     runner = CliRunner()
@@ -495,9 +631,9 @@ def test_optimize_propose_passes_run_context_to_proposal_command(
             "optimize",
             "propose",
             "--profile",
-            "contextatlas_patch_repair",
+            "base",
             "--project",
-            "contextatlas_patch",
+            "demo",
             "--config-root",
             str(config_root),
             "--runs-root",
@@ -512,7 +648,319 @@ def test_optimize_propose_passes_run_context_to_proposal_command(
     proposal = json.loads(
         (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
     )
-    assert proposal["strategy"] == "run_context_command"
+    assert proposal["strategy"] == "env_command"
+    assert proposal["marker"] == "ready"
+
+
+def test_optimize_propose_can_use_llm_harness_config(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+
+    script_path = tmp_path / "llm_harness_generator.py"
+    script_path.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "import sys",
+                "payload = json.load(sys.stdin)",
+                "assert payload['model'] == 'gpt-test'",
+                "assert 'run-a' in payload['user_prompt']",
+                "print(json.dumps({",
+                "  'notes': 'llm harness proposal',",
+                "  'proposal': {",
+                "    'strategy': 'llm_harness_patch',",
+                "    'model': payload['model']",
+                "  },",
+                "  'config_patch': {",
+                "    'retrieval': {'top_k': 10}",
+                "  }",
+                "}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "optimization": {
+                    "llm_harness": {
+                        "command": ["python", str(script_path)],
+                        "model": "gpt-test",
+                    }
+                }
+            },
+        },
+    )
+
+    make_failed_run(
+        runs_root,
+        "run-a",
+        "Profile show command returned empty output",
+        profile="base",
+        project="demo",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "propose",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(runs_root),
+            "--candidates-root",
+            str(candidates_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    candidate_id = result.stdout.strip()
+    proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    effective_config = json.loads(
+        (candidates_root / candidate_id / "effective_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert proposal["strategy"] == "llm_harness_patch"
+    assert proposal["model"] == "gpt-test"
+    assert effective_config["retrieval"]["top_k"] == 10
+
+
+def test_optimize_loop_service_forwards_request_to_runner(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {"evaluation": {"evaluators": ["basic"]}}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {"workflow": "base", "overrides": {}},
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_runner(request, **kwargs):
+        calls.append(
+            {
+                "request": request,
+                "kwargs": kwargs,
+            }
+        )
+        return {
+            "loop_id": "loop-123",
+            "best_candidate_id": "candidate-1",
+        }
+
+    payload = optimize_loop_payload(
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        config_root=config_root,
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        reports_root=tmp_path / "reports",
+        loop_id="loop-override",
+        plugin_id="web_scrape",
+        proposer_id="heuristic",
+        max_iterations=5,
+        focus="all",
+        run_search_loop_fn=fake_runner,
+    )
+
+    assert calls
+    call = calls[0]
+    request = call["request"]
+    kwargs = call["kwargs"]
+    assert request.profile_name == "base"
+    assert request.project_name == "demo"
+    assert str(request.task_set_path).endswith("task_set.json")
+    assert request.task_plugin_id == "web_scrape"
+    assert request.proposer_id == "heuristic"
+    assert request.max_iterations == 5
+    assert kwargs["task_plugin"].plugin_id == "web_scrape"
+    assert kwargs["proposer"].proposer_id == "heuristic_failure_family"
+    assert payload["loop_id"] == "loop-123"
+    assert payload["best_candidate_id"] == "candidate-1"
+    assert payload["loop_request"]["loop_id"] == "loop-override"
+
+
+def test_optimize_loop_service_resolves_llm_harness_proposer_from_config(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "base.json",
+        {"description": "workflow", "defaults": {"evaluation": {"evaluators": ["basic"]}}},
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "optimization": {
+                    "llm_harness": {
+                        "command": ["python", "scripts/generate.py"],
+                        "model": "gpt-test",
+                        "system_prompt": "You are an optimizer.",
+                    }
+                }
+            },
+        },
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_runner(request, **kwargs):
+        calls.append({"request": request, "kwargs": kwargs})
+        return {
+            "loop_id": "loop-llm",
+            "best_candidate_id": "candidate-llm",
+        }
+
+    payload = optimize_loop_payload(
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        config_root=config_root,
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        reports_root=tmp_path / "reports",
+        proposer_id="llm_harness",
+        run_search_loop_fn=fake_runner,
+    )
+
+    assert calls
+    proposer = calls[0]["kwargs"]["proposer"]
+    assert proposer.proposer_id == "llm_harness"
+    assert proposer.command == ["python", "scripts/generate.py"]
+    assert proposer.model_name == "gpt-test"
+    assert payload["loop_id"] == "loop-llm"
+
+
+def test_optimize_loop_service_uses_shared_request_builder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(config_root / "platform.json", {})
+    write_json(config_root / "profiles" / "base.json", {"description": "workflow", "defaults": {}})
+    write_json(config_root / "projects" / "demo.json", {"workflow": "base", "overrides": {}})
+    captured: dict[str, object] = {}
+
+    def fake_build_search_loop_request(**kwargs):
+        captured.update(kwargs)
+        from meta_harness.loop.schemas import SearchLoopRequest
+
+        return SearchLoopRequest(
+            profile_name="base",
+            project_name="demo",
+            task_set_path=tmp_path / "task_set.json",
+            config_root=tmp_path / "configs",
+            runs_root=tmp_path / "runs",
+            candidates_root=tmp_path / "candidates",
+            reports_root=tmp_path / "reports",
+            task_plugin_id="web_scrape",
+            proposer_id="heuristic",
+        )
+
+    monkeypatch.setattr(
+        "meta_harness.services.optimize_loop_service.build_search_loop_request",
+        fake_build_search_loop_request,
+    )
+
+    optimize_loop_payload(
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "task_set.json",
+        config_root=config_root,
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        reports_root=tmp_path / "reports",
+        proposals_root=tmp_path / "proposals",
+        plugin_id="web_scrape",
+        proposer_id="heuristic",
+        run_search_loop_fn=lambda request, **kwargs: {"loop_id": "loop-x", "loop_request": request.model_dump()},
+    )
+
+    assert captured["profile_name"] == "base"
+    assert captured["project_name"] == "demo"
+    assert captured["plugin_id"] == "web_scrape"
+    assert captured["proposer_id"] == "heuristic"
+
+
+def test_optimize_loop_cli_invokes_service_and_echoes_loop_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: dict[str, object] = {}
+
+    def fake_optimize_loop_payload(**kwargs):
+        called.update(kwargs)
+        return {"loop_id": "loop-456", "best_candidate_id": "candidate-2"}
+
+    monkeypatch.setattr(
+        "meta_harness.cli_optimize_loop.optimize_loop_payload",
+        fake_optimize_loop_payload,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "optimize",
+            "loop",
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--task-set",
+            str(tmp_path / "task_set.json"),
+            "--config-root",
+            str(tmp_path / "configs"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--candidates-root",
+            str(tmp_path / "candidates"),
+            "--proposals-root",
+            str(tmp_path / "proposals"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--loop-id",
+            "loop-override",
+            "--plugin-id",
+            "web_scrape",
+            "--proposer-id",
+            "heuristic",
+            "--max-iterations",
+            "4",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "loop-456"
+    assert called["profile_name"] == "base"
+    assert called["project_name"] == "demo"
+    assert called["loop_id"] == "loop-override"
+    assert called["max_iterations"] == 4
+    assert called["proposals_root"] == tmp_path / "proposals"
 
 
 def test_optimize_propose_passes_only_shared_run_context_for_generic_workflows(
@@ -533,7 +981,7 @@ def test_optimize_propose_passes_only_shared_run_context_for_generic_workflows(
                 "run = payload['matching_runs'][0]",
                 "assert run['run_context']['tasks'][0]['task_id'] == 'task-a'",
                 "assert run['run_context']['tasks'][0]['success'] is True",
-                "assert 'contextatlas' not in run['run_context']",
+                "assert set(run['run_context']) == {'tasks'}",
                 "print(json.dumps({",
                 "  'notes': 'generic run context proposal',",
                 "  'proposal': {",
@@ -783,7 +1231,7 @@ def test_optimize_propose_persists_architecture_level_proposal_metadata(
                 "    'tags': ['memory', 'architecture']",
                 "  },",
                 "  'config_patch': {",
-                "    'contextatlas': {'memory': {'routing_mode': 'freshness-biased'}}",
+                "    'memory': {'routing_mode': 'freshness-biased'}",
                 "  }",
                 "}))",
             ]
@@ -845,7 +1293,7 @@ def test_optimize_propose_persists_architecture_level_proposal_metadata(
         )
     )
 
-    assert proposal == {
+    assert {key: value for key, value in proposal.items() if key != "proposal_id"} == {
         "strategy": "promote_method_family",
         "variant_type": "method_family",
         "hypothesis": "freshness routing reduces stale memory interference",
@@ -856,7 +1304,8 @@ def test_optimize_propose_persists_architecture_level_proposal_metadata(
         },
         "tags": ["memory", "architecture"],
     }
-    assert effective_config["contextatlas"]["memory"]["routing_mode"] == "freshness-biased"
+    assert proposal["proposal_id"]
+    assert effective_config["memory"]["routing_mode"] == "freshness-biased"
 
 
 def test_builtin_architecture_recommendation_proposal_templates_retrieval(
@@ -1004,6 +1453,168 @@ def test_pack_driven_workflow_architecture_recommendation_uses_primitive_templat
     assert effective_config["workflow"]["primitives"]["web_scrape"] == {
         "timeout_ms": 5000,
         "wait_strategy": "domcontentloaded",
+    }
+
+
+def test_builtin_architecture_recommendation_binding_patch_templates(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {
+            "description": "workflow",
+            "defaults": {"runtime": {"binding": {"agent": "claude"}}},
+        },
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {"workflow": "workflow", "overrides": {}},
+    )
+
+    candidate_id = propose_candidate_from_architecture_recommendation(
+        config_root=config_root,
+        candidates_root=candidates_root,
+        profile_name="workflow",
+        project_name="workflow_demo",
+        source_run_ids=["run-binding"],
+        architecture_recommendation={
+            "focus": "binding",
+            "primitive_id": "web_scrape",
+            "variant_type": "method_family",
+            "proposal_strategy": "explore_binding_patch",
+            "hypothesis": "improve transferred binding fidelity",
+            "gap_signals": [
+                "binding_execution_rate",
+                "method_trace_coverage_rate",
+                "binding_payload_rate",
+            ],
+            "metric_thresholds": {
+                "binding_execution_rate": 0.9,
+                "method_trace_coverage_rate": 0.85,
+                "binding_payload_rate": 0.9,
+                "assistant_reply_rate": 0.85,
+                "artifact_coverage_rate": 0.85,
+            },
+        },
+    )
+
+    proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    effective_config = json.loads(
+        (candidates_root / candidate_id / "effective_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert proposal["strategy"] == "explore_binding_patch"
+    assert proposal["expected_signals"] == {
+        "probes": {
+            "web_scrape.binding_payload_present_rate": {"min": 1},
+            "web_scrape.assistant_reply_rate": {"min": 1},
+        }
+    }
+    assert effective_config["optimization"]["focus"] == "binding"
+    assert effective_config["runtime"]["binding"] == {
+        "agent": "claude",
+        "json": True,
+        "local": True,
+        "timeout": 900,
+        "verbose": "on",
+    }
+
+
+def test_pack_driven_workflow_architecture_recommendation_selects_hardening_template_for_strong_gap(
+    tmp_path: Path,
+) -> None:
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+
+    write_json(config_root / "platform.json", {"budget": {"max_turns": 12}})
+    write_json(
+        config_root / "profiles" / "workflow.json",
+        {"description": "workflow", "defaults": {}},
+    )
+    write_json(
+        config_root / "projects" / "workflow_demo.json",
+        {"workflow": "workflow", "overrides": {}},
+    )
+    write_json(
+        config_root / "primitives" / "web_scrape.json",
+        {
+            "primitive_id": "web_scrape",
+            "kind": "browser_interaction",
+            "proposal_templates": [
+                {
+                    "template_id": "web_scrape/fast_path",
+                    "title": "Fast path",
+                    "hypothesis": "Reduce wait time on stable pages",
+                    "knobs": {
+                        "timeout_ms": 5000,
+                        "wait_strategy": "domcontentloaded",
+                    },
+                    "expected_signals": {
+                        "fingerprints": {"scrape.mode": "fast"}
+                    },
+                    "tags": ["latency"],
+                },
+                {
+                    "template_id": "web_scrape/hardening",
+                    "title": "Hardening",
+                    "hypothesis": "Increase resilience on unstable pages",
+                    "knobs": {
+                        "timeout_ms": 9000,
+                        "retry_limit": 3,
+                    },
+                    "expected_signals": {
+                        "probes": {"scrape.retry_count": {"max": 3}}
+                    },
+                    "tags": ["stability"],
+                },
+            ],
+        },
+    )
+
+    candidate_id = propose_candidate_from_architecture_recommendation(
+        config_root=config_root,
+        candidates_root=candidates_root,
+        profile_name="workflow",
+        project_name="workflow_demo",
+        source_run_ids=["run-workflow"],
+        architecture_recommendation={
+            "focus": "workflow",
+            "primitive_id": "web_scrape",
+            "variant_type": "method_family",
+            "proposal_strategy": "explore_workflow_method_family",
+            "hypothesis": "improve workflow hot path",
+            "gap_signals": ["hot_path_success_rate", "fallback_rate"],
+            "metric_thresholds": {
+                "hot_path_success_rate": 0.9,
+                "fallback_rate": 0.15,
+            },
+        },
+    )
+
+    proposal = json.loads(
+        (candidates_root / candidate_id / "proposal.json").read_text(encoding="utf-8")
+    )
+    effective_config = json.loads(
+        (candidates_root / candidate_id / "effective_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert proposal["expected_signals"] == {
+        "probes": {"scrape.retry_count": {"max": 3}}
+    }
+    assert proposal["selected_template_id"] == "web_scrape/hardening"
+    assert effective_config["workflow"]["primitives"]["web_scrape"] == {
+        "timeout_ms": 9000,
+        "retry_limit": 3,
     }
 
 
@@ -1319,7 +1930,7 @@ def test_builtin_architecture_recommendation_proposal_templates_memory(
     }
     assert proposal["tags"] == ["auto-propose", "method-family", "memory"]
     assert effective_config["optimization"]["focus"] == "memory"
-    assert effective_config["contextatlas"]["memory"] == {
+    assert effective_config["memory"] == {
         "enabled": True,
         "routing_mode": "freshness-biased",
         "freshness_bias": 0.8,
@@ -1373,7 +1984,7 @@ def test_builtin_architecture_recommendation_proposal_templates_memory_scale_wit
         )
     )
 
-    assert effective_config["contextatlas"]["memory"] == {
+    assert effective_config["memory"] == {
         "enabled": True,
         "routing_mode": "freshness-biased",
         "freshness_bias": 0.9,
@@ -1403,13 +2014,11 @@ def test_builtin_architecture_recommendation_memory_template_prefers_historical_
         profile="base",
         project="demo",
         config={
-            "contextatlas": {
-                "memory": {
-                    "enabled": True,
-                    "routing_mode": "freshness-biased",
-                    "freshness_bias": 0.72,
-                    "stale_prune_threshold": 0.14,
-                }
+            "memory": {
+                "enabled": True,
+                "routing_mode": "freshness-biased",
+                "freshness_bias": 0.72,
+                "stale_prune_threshold": 0.14,
             }
         },
         composite=12.0,
@@ -1442,7 +2051,7 @@ def test_builtin_architecture_recommendation_memory_template_prefers_historical_
         )
     )
 
-    assert effective_config["contextatlas"]["memory"] == {
+    assert effective_config["memory"] == {
         "enabled": True,
         "routing_mode": "freshness-biased",
         "freshness_bias": 0.72,

@@ -1,0 +1,68 @@
+{
+  "strategy_id": "web_scrape/vlm-visual-extract",
+  "title": "VLM Visual Extract",
+  "source": "reference://web_scrape/vlm_visual_extract",
+  "category": "web_scrape",
+  "primitive_id": "web_scrape",
+  "capability_metadata": {
+    "page_profile": {
+      "complexity": "high",
+      "render_required": true,
+      "interaction_required": false,
+      "anti_bot_level": "high",
+      "media_dependency": true
+    },
+    "workload_profile": {
+      "mode": "ad_hoc",
+      "usage_mode": "ad_hoc",
+      "freshness_requirement": "medium",
+      "allowed_failure_rate": "high"
+    }
+  },
+  "priority": 15,
+  "change_type": "config_only",
+  "variant_type": "method_family",
+  "variant_name": "vlm_visual_extract",
+  "hypothesis": "Highly dynamic or media-dependent pages can be extracted visually when token cost is acceptable.",
+  "expected_benefits": [
+    "handles complex rendered layouts",
+    "works when text-only extraction fails",
+    "best recall on visually encoded content"
+  ],
+  "expected_costs": [
+    "highest token cost",
+    "higher latency",
+    "more sensitive to model variance"
+  ],
+  "config_patch": {
+    "workflow": {
+      "primitives": {
+        "web_scrape": {
+          "pipeline": "vlm_visual_extract",
+          "render_mode": "full",
+          "timeout_ms": 12000
+        }
+      }
+    }
+  },
+  "expected_signals": {
+    "fingerprints": {
+      "scrape.mode": "visual"
+    },
+    "probes": {
+      "scrape.navigation_depth": {
+        "min": 2
+      }
+    }
+  },
+  "risk_notes": [
+    "preferred when visual fidelity matters more than token cost"
+  ],
+  "tags": [
+    "web_scrape",
+    "visual",
+    "vlm",
+    "ad_hoc",
+    "high-complexity"
+  ]
+}

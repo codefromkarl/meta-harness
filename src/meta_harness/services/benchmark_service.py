@@ -4,8 +4,12 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from meta_harness.benchmark import run_benchmark, run_benchmark_suite
+from meta_harness.benchmark_engine import run_benchmark, run_benchmark_suite
 from meta_harness.compaction import compact_runs
+
+
+def _artifact_path_for_report(*, reports_root: Path, output_path: Path) -> str:
+    return str(output_path.relative_to(reports_root.parent))
 
 
 def write_benchmark_report(*, reports_root: Path, payload: dict[str, Any]) -> Path:
@@ -24,6 +28,28 @@ def write_benchmark_suite_report(*, reports_root: Path, payload: dict[str, Any])
     return output_path
 
 
+def persist_benchmark_payload(
+    *,
+    reports_root: Path,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_path = payload.get("artifact_path")
+    if isinstance(artifact_path, str) and artifact_path:
+        return payload
+
+    if "suite" in payload:
+        output_path = write_benchmark_suite_report(reports_root=reports_root, payload=payload)
+    else:
+        output_path = write_benchmark_report(reports_root=reports_root, payload=payload)
+
+    result = dict(payload)
+    result["artifact_path"] = _artifact_path_for_report(
+        reports_root=reports_root,
+        output_path=output_path,
+    )
+    return result
+
+
 def observe_benchmark_payload(
     *,
     profile_name: str,
@@ -33,6 +59,7 @@ def observe_benchmark_payload(
     config_root: Path,
     runs_root: Path,
     candidates_root: Path,
+    reports_root: Path = Path("reports"),
     focus: str | None = None,
     auto_compact_runs: bool = True,
     include_artifacts: bool = False,
@@ -58,7 +85,7 @@ def observe_benchmark_payload(
             compactable_statuses=compactable_statuses,
             cleanup_auxiliary_dirs=cleanup_auxiliary_dirs,
         )
-    return payload
+    return persist_benchmark_payload(reports_root=reports_root, payload=payload)
 
 
 def observe_benchmark_suite_payload(
@@ -70,6 +97,7 @@ def observe_benchmark_suite_payload(
     config_root: Path,
     runs_root: Path,
     candidates_root: Path,
+    reports_root: Path = Path("reports"),
     auto_compact_runs: bool = True,
     include_artifacts: bool = False,
     compactable_statuses: list[str] | None = None,
@@ -93,4 +121,4 @@ def observe_benchmark_suite_payload(
             compactable_statuses=compactable_statuses,
             cleanup_auxiliary_dirs=cleanup_auxiliary_dirs,
         )
-    return payload
+    return persist_benchmark_payload(reports_root=reports_root, payload=payload)

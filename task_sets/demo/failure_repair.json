@@ -1,0 +1,38 @@
+{
+  "tasks": [
+    {
+      "task_id": "broken-review-step",
+      "scenario": "demo_failure_case",
+      "difficulty": "easy",
+      "weight": 1.0,
+      "dataset_case": {
+        "query": "find the failing review step",
+        "expected_paths": [
+          "task_sets/demo/failure_repair.json"
+        ],
+        "expected_answer_contains": [
+          "broken-review-step",
+          "compile"
+        ]
+      },
+      "phases": [
+        {
+          "phase": "compile",
+          "command": [
+            "python",
+            "-c",
+            "import sys; print('demo compile failed', file=sys.stderr); sys.exit(1)"
+          ]
+        },
+        {
+          "phase": "review",
+          "command": [
+            "python",
+            "-c",
+            "print('should-not-run')"
+          ]
+        }
+      ]
+    }
+  ]
+}

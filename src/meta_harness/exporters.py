@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from meta_harness.services.trace_service import classify_trace_event_kind
+
 
 def _parse_timestamp(raw: Any) -> datetime:
     if not raw:
@@ -46,12 +48,21 @@ def export_run_trace_otel_json(run_dir: Path) -> dict[str, Any]:
                         "attributes": {
                             "meta_harness.run_id": payload.get("run_id", run_dir.name),
                             "meta_harness.task_id": payload.get("task_id", task_dir.name),
+                            "meta_harness.session_ref": payload.get("session_ref"),
                             "meta_harness.candidate_id": payload.get("candidate_id"),
                             "meta_harness.status": payload.get("status"),
                             "meta_harness.step_id": payload.get("step_id"),
+                            "meta_harness.event_kind": classify_trace_event_kind(payload),
+                            "meta_harness.artifact_refs": payload.get("artifact_refs"),
+                            "meta_harness.retrieval_refs": payload.get("retrieval_refs"),
                             "tool.name": payload.get("tool_name"),
                             "gen_ai.prompt.ref": payload.get("prompt_ref"),
                             "gen_ai.request.model": payload.get("model"),
+                            "gen_ai.usage.total_tokens": (
+                                (payload.get("token_usage") or {}).get("total")
+                                if isinstance(payload.get("token_usage"), dict)
+                                else None
+                            ),
                         },
                     }
                 )

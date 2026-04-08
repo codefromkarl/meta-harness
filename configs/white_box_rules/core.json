@@ -1,0 +1,31 @@
+{
+  "pack_id": "white_box/core",
+  "version": "v1",
+  "description": "Minimal reusable white-box audit rules for filesystem and scan hotspots.",
+  "rules": [
+    {
+      "id": "snapshot-copy",
+      "path_globs": [
+        "src/**/*.py",
+        "src/**/*.ts",
+        "scripts/**/*.py",
+        "scripts/**/*.ts"
+      ],
+      "pattern": "copyFileSync|shutil\\.copy(?:2|tree)",
+      "severity": "blocker",
+      "message": "snapshot copy write amplification"
+    },
+    {
+      "id": "repo-wide-glob-scan",
+      "path_globs": [
+        "src/**/*.py",
+        "src/**/*.ts",
+        "scripts/**/*.py",
+        "scripts/**/*.ts"
+      ],
+      "pattern": "glob\\(\\s*[\"']\\*\\*/\\*[\"']|rglob\\(\\s*[\"']\\*[\"']",
+      "severity": "warn",
+      "message": "repo-wide scan may cause redundant traversal"
+    }
+  ]
+}

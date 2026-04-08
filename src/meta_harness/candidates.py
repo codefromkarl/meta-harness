@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 from typing import Any
@@ -12,6 +13,13 @@ from meta_harness.schemas import CandidateMetadata
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = _read_json(path)
+    return payload if isinstance(payload, dict) else {}
 
 
 def _stable_json(value: Any) -> str:
@@ -201,17 +209,127 @@ def load_candidate_record(candidates_root: Path, candidate_id: str) -> dict[str,
     }
 
 
-def promote_candidate(candidates_root: Path, candidate_id: str) -> dict[str, str]:
+def _build_promotion_target_payload(
+    *,
+    candidates_root: Path,
+    candidate_id: str,
+    evidence_run_ids: list[str],
+    runs_root: Path | None,
+    promoted_by: str | None,
+    promotion_reason: str | None,
+) -> dict[str, Any]:
+    record = load_candidate_record(candidates_root, candidate_id)
+    evidence_refs = [f"runs/{run_id}/score_report.json" for run_id in evidence_run_ids]
+    evidence_runs: list[dict[str, Any]] = []
+    completed_evidence_run_count = 0
+    scored_evidence_run_count = 0
+    if runs_root is not None:
+        for run_id in evidence_run_ids:
+            run_dir = runs_root / run_id
+            run_metadata = _read_json_if_exists(run_dir / "run_metadata.json")
+            score_report = _read_json_if_exists(run_dir / "score_report.json")
+            status = run_metadata.get("status")
+            if status == "completed":
+                completed_evidence_run_count += 1
+            if score_report:
+                scored_evidence_run_count += 1
+            evidence_runs.append(
+                {
+                    "run_id": run_id,
+                    "run_metadata_path": f"runs/{run_id}/run_metadata.json",
+                    "score_report_path": f"runs/{run_id}/score_report.json",
+                    "status": status,
+                    "candidate_id": run_metadata.get("candidate_id"),
+                    "composite": score_report.get("composite"),
+                }
+            )
+
+    evidence_run_count = len(evidence_run_ids)
+    all_evidence_runs_completed = (
+        evidence_run_count > 0 and completed_evidence_run_count == evidence_run_count
+    )
+    all_evidence_runs_scored = (
+        evidence_run_count > 0 and scored_evidence_run_count == evidence_run_count
+    )
+    return {
+        "candidate": {
+            "candidate_id": record["candidate_id"],
+            "profile": record["profile"],
+            "project": record["project"],
+            "notes": record.get("notes", ""),
+        },
+        "promotion_reason": promotion_reason or "",
+        "promoted_by": promoted_by,
+        "evidence_run_ids": evidence_run_ids,
+        "evidence_refs": evidence_refs,
+        "evidence_runs": evidence_runs,
+        "promotion_summary": {
+            "evidence_run_count": evidence_run_count,
+            "completed_evidence_run_count": completed_evidence_run_count,
+            "scored_evidence_run_count": scored_evidence_run_count,
+            "all_evidence_runs_completed": all_evidence_runs_completed,
+            "all_evidence_runs_scored": all_evidence_runs_scored,
+        },
+    }
+
+
+def promote_candidate(
+    candidates_root: Path,
+    candidate_id: str,
+    *,
+    promoted_by: str | None = None,
+    promotion_reason: str | None = None,
+    evidence_run_ids: list[str] | None = None,
+    runs_root: Path | None = None,
+) -> dict[str, Any]:
     record = load_candidate_record(candidates_root, candidate_id)
     champions_path = candidates_root / "champions.json"
     champions: dict[str, str] = {}
     if champions_path.exists():
         champions = _read_json(champions_path)
 
-    champions[f"{record['profile']}:{record['project']}"] = candidate_id
+    profile_project_key = f"{record['profile']}:{record['project']}"
+    evidence_ids = [str(item) for item in (evidence_run_ids or []) if str(item)]
+
+    champions[profile_project_key] = candidate_id
     champions_path.parent.mkdir(parents=True, exist_ok=True)
     champions_path.write_text(json.dumps(champions, indent=2), encoding="utf-8")
-    return champions
+
+    champion_record = {
+        "candidate_id": candidate_id,
+        "profile": record["profile"],
+        "project": record["project"],
+        "promoted_at": datetime.now(UTC).isoformat(),
+        "promoted_by": promoted_by,
+        "promotion_reason": promotion_reason or "",
+        "evidence_run_ids": evidence_ids,
+    }
+    champion_records_path = candidates_root / "champion_records.json"
+    champion_records = _read_json_if_exists(champion_records_path)
+    champion_records[profile_project_key] = champion_record
+    champion_records_path.write_text(
+        json.dumps(champion_records, indent=2), encoding="utf-8"
+    )
+
+    promotion_target = _build_promotion_target_payload(
+        candidates_root=candidates_root,
+        candidate_id=candidate_id,
+        evidence_run_ids=evidence_ids,
+        runs_root=runs_root,
+        promoted_by=promoted_by,
+        promotion_reason=promotion_reason,
+    )
+    candidate_dir = Path(str(record["candidate_dir"]))
+    (candidate_dir / "promotion_target.json").write_text(
+        json.dumps(promotion_target, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "champions": champions,
+        "champion_record": champion_record,
+        "promotion_target_path": str((candidate_dir / "promotion_target.json").resolve()),
+    }
 
 
 def load_champion_candidate_id(

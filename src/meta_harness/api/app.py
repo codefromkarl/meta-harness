@@ -1,372 +1,326 @@
 from __future__ import annotations
 
-from pathlib import Path
+import hashlib
+import json
+import os
+from importlib import import_module
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, Response
 
-from meta_harness.api.contracts import (
-    DatasetExtractFailuresRequest,
-    ObservationBenchmarkRequest,
-    OptimizeProposeRequest,
-    PromoteCandidateRequest,
-    RunExportTraceRequest,
-    RunScoreRequest,
-    StrategyBenchmarkRequest,
-    StrategyCreateCandidateRequest,
-    WorkflowBenchmarkRequest,
-    WorkflowBenchmarkSuiteRequest,
-    WorkflowCompileRequest,
-    WorkflowRunRequest,
-)
-from meta_harness.services.async_jobs import (
-    submit_dataset_extract_job,
-    submit_observation_benchmark_job,
-    submit_optimize_propose_job,
-    submit_run_export_trace_job,
-    submit_run_score_job,
-    submit_strategy_benchmark_job,
-)
-from meta_harness.services.benchmark_service import (
-    write_benchmark_report,
-    write_benchmark_suite_report,
-)
-from meta_harness.services.candidate_service import list_champions, promote_candidate_record
-from meta_harness.services.catalog_service import candidate_current_view_payload
-from meta_harness.services.job_service import list_job_views
-from meta_harness.services.job_service import load_job_view
-from meta_harness.services.observation_service import observe_summary_payload
-from meta_harness.services.profile_service import list_profile_names
-from meta_harness.services.project_service import list_project_names
-from meta_harness.services.run_query_service import (
-    list_evaluator_reports,
-    list_run_summaries,
-    list_task_results,
-    list_trace_events,
-    load_run_summary,
-)
-from meta_harness.services.service_execution import execute_inline_job
-from meta_harness.services.service_response import success_response
-from meta_harness.services.strategy_service import (
-    create_candidate_from_strategy_card_payload,
-    inspect_strategy_card_payload,
-)
-from meta_harness.services.workflow_service import (
-    benchmark_suite_workflow_payload,
-    benchmark_workflow_payload,
-    compile_workflow_payload,
-    inspect_workflow_payload,
-    run_workflow_payload,
-)
+from meta_harness.api.routes_core import register_core_routes
+from meta_harness.api.routes_data_ops import register_data_ops_routes
+from meta_harness.api.routes_execution_ops import register_execution_ops_routes
+from meta_harness.api.routes_integrations import register_integration_routes
+
+
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "analyze_integration_payload": (
+        "meta_harness.services.integration_service",
+        "analyze_integration_payload",
+    ),
+    "benchmark_integration_payload": (
+        "meta_harness.services.integration_service",
+        "benchmark_integration_payload",
+    ),
+    "build_task_set_dataset_to_path": (
+        "meta_harness.services.dataset_service",
+        "build_task_set_dataset_to_path",
+    ),
+    "build_web_scrape_audit_benchmark_spec_payload": (
+        "meta_harness.services.strategy_service",
+        "build_web_scrape_audit_benchmark_spec_payload",
+    ),
+    "build_web_scrape_audit_report_payload": (
+        "meta_harness.services.strategy_service",
+        "build_web_scrape_audit_report_payload",
+    ),
+    "cancel_job_record": ("meta_harness.services.job_service", "cancel_job_record"),
+    "candidate_current_view_payload": (
+        "meta_harness.services.catalog_service",
+        "candidate_current_view_payload",
+    ),
+    "compile_workflow_payload": (
+        "meta_harness.services.workflow_service",
+        "compile_workflow_payload",
+    ),
+    "create_annotation_record": (
+        "meta_harness.services.annotation_service",
+        "create_annotation_record",
+    ),
+    "create_candidate_from_strategy_card_payload": (
+        "meta_harness.services.strategy_service",
+        "create_candidate_from_strategy_card_payload",
+    ),
+    "derive_dataset_split_to_path": (
+        "meta_harness.services.dataset_service",
+        "derive_dataset_split_to_path",
+    ),
+    "evaluate_gate_policy_from_paths": (
+        "meta_harness.services.gate_service",
+        "evaluate_gate_policy_from_paths",
+    ),
+    "list_gate_history": ("meta_harness.services.gate_service", "list_gate_history"),
+    "list_gate_results": ("meta_harness.services.gate_service", "list_gate_results"),
+    "export_run_to_named_integration": (
+        "meta_harness.services.export_service",
+        "export_run_to_named_integration",
+    ),
+    "grade_trace_events": ("meta_harness.services.trace_service", "grade_trace_events"),
+    "harness_outer_loop_payload": (
+        "meta_harness.services.integration_service",
+        "harness_outer_loop_payload",
+    ),
+    "ingest_dataset_annotations_to_path": (
+        "meta_harness.services.dataset_service",
+        "ingest_dataset_annotations_to_path",
+    ),
+    "inspect_strategy_card_payload": (
+        "meta_harness.services.strategy_service",
+        "inspect_strategy_card_payload",
+    ),
+    "inspect_workflow_payload": (
+        "meta_harness.services.workflow_service",
+        "inspect_workflow_payload",
+    ),
+    "list_annotation_records": (
+        "meta_harness.services.annotation_service",
+        "list_annotation_records",
+    ),
+    "list_champions": ("meta_harness.services.candidate_service", "list_champions"),
+    "list_dataset_versions": (
+        "meta_harness.services.dataset_service",
+        "list_dataset_versions",
+    ),
+    "list_evaluator_reports": (
+        "meta_harness.services.run_query_service",
+        "list_evaluator_reports",
+    ),
+    "list_gate_policies": (
+        "meta_harness.services.gate_policy_service",
+        "list_gate_policies",
+    ),
+    "list_integrations": ("meta_harness.services.integration_service", "list_integrations"),
+    "list_job_views": ("meta_harness.services.job_service", "list_job_views"),
+    "list_proposals_payload": (
+        "meta_harness.services.optimize_service",
+        "list_proposals_payload",
+    ),
+    "list_profile_names": ("meta_harness.services.profile_service", "list_profile_names"),
+    "list_project_names": ("meta_harness.services.project_service", "list_project_names"),
+    "list_run_summaries": (
+        "meta_harness.services.run_query_service",
+        "list_run_summaries",
+    ),
+    "list_task_results": (
+        "meta_harness.services.run_query_service",
+        "list_task_results",
+    ),
+    "list_trace_events": (
+        "meta_harness.services.run_query_service",
+        "list_trace_events",
+    ),
+    "load_dataset_summary": (
+        "meta_harness.services.dataset_service",
+        "load_dataset_summary",
+    ),
+    "load_dataset_version": (
+        "meta_harness.services.dataset_service",
+        "load_dataset_version",
+    ),
+    "load_evaluator_report": (
+        "meta_harness.services.run_query_service",
+        "load_evaluator_report",
+    ),
+    "load_gate_policy": (
+        "meta_harness.services.gate_policy_service",
+        "load_gate_policy",
+    ),
+    "load_gate_result": ("meta_harness.services.gate_service", "load_gate_result"),
+    "load_job_result": (
+        "meta_harness.services.job_runtime_service",
+        "load_job_result",
+    ),
+    "load_job_view": ("meta_harness.services.job_service", "load_job_view"),
+    "load_proposal_payload": (
+        "meta_harness.services.optimize_service",
+        "load_proposal_payload",
+    ),
+    "load_run_summary": (
+        "meta_harness.services.run_query_service",
+        "load_run_summary",
+    ),
+    "load_task_result": (
+        "meta_harness.services.run_query_service",
+        "load_task_result",
+    ),
+    "materialize_proposal_payload": (
+        "meta_harness.services.optimize_service",
+        "materialize_proposal_payload",
+    ),
+    "observe_summary_payload": (
+        "meta_harness.services.observation_service",
+        "observe_summary_payload",
+    ),
+    "paginate_items": ("meta_harness.services.pagination", "paginate_items"),
+    "promote_candidate_record": (
+        "meta_harness.services.candidate_service",
+        "promote_candidate_record",
+    ),
+    "promote_dataset_version": (
+        "meta_harness.services.dataset_service",
+        "promote_dataset_version",
+    ),
+    "recommend_web_scrape_strategy_cards_payload": (
+        "meta_harness.services.strategy_service",
+        "recommend_web_scrape_strategy_cards_payload",
+    ),
+    "retry_job": ("meta_harness.services.job_runtime_service", "retry_job"),
+    "review_harness_payload": (
+        "meta_harness.services.integration_service",
+        "review_harness_payload",
+    ),
+    "review_integration_payload": (
+        "meta_harness.services.integration_service",
+        "review_integration_payload",
+    ),
+    "scaffold_harness_payload": (
+        "meta_harness.services.integration_service",
+        "scaffold_harness_payload",
+    ),
+    "scaffold_integration_payload": (
+        "meta_harness.services.integration_service",
+        "scaffold_integration_payload",
+    ),
+    "submit_dataset_extract_job": (
+        "meta_harness.services.async_jobs",
+        "submit_dataset_extract_job",
+    ),
+    "submit_observation_benchmark_job": (
+        "meta_harness.services.async_jobs",
+        "submit_observation_benchmark_job",
+    ),
+    "submit_optimize_loop_job": (
+        "meta_harness.services.async_jobs",
+        "submit_optimize_loop_job",
+    ),
+    "submit_optimize_propose_job": (
+        "meta_harness.services.async_jobs",
+        "submit_optimize_propose_job",
+    ),
+    "submit_run_export_trace_job": (
+        "meta_harness.services.async_jobs",
+        "submit_run_export_trace_job",
+    ),
+    "submit_run_score_job": (
+        "meta_harness.services.async_jobs",
+        "submit_run_score_job",
+    ),
+    "submit_strategy_benchmark_job": (
+        "meta_harness.services.async_jobs",
+        "submit_strategy_benchmark_job",
+    ),
+    "submit_workflow_benchmark_job": (
+        "meta_harness.services.async_jobs",
+        "submit_workflow_benchmark_job",
+    ),
+    "submit_workflow_benchmark_suite_job": (
+        "meta_harness.services.async_jobs",
+        "submit_workflow_benchmark_suite_job",
+    ),
+    "submit_workflow_run_job": (
+        "meta_harness.services.async_jobs",
+        "submit_workflow_run_job",
+    ),
+    "success_response": (
+        "meta_harness.services.service_response",
+        "success_response",
+    ),
+    "test_integration": ("meta_harness.services.integration_service", "test_integration"),
+}
+
+
+def __getattr__(name: str):
+    target = _LAZY_ATTRS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module_name, attr_name = target
+    value = getattr(import_module(module_name), attr_name)
+    globals()[name] = value
+    return value
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Meta-Harness API", version="0.1.0")
+    bearer_token = os.getenv("META_HARNESS_API_BEARER_TOKEN")
+    app.state.idempotency_cache = {}
 
-    @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    @app.middleware("http")
+    async def require_bearer_token(request: Request, call_next):
+        if not bearer_token or request.url.path == "/health":
+            return await call_next(request)
+        if request.headers.get("Authorization") != f"Bearer {bearer_token}":
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return await call_next(request)
 
-    @app.get("/profiles")
-    def profiles(config_root: str = "configs") -> dict[str, list[str]]:
-        return {"items": list_profile_names(Path(config_root))}
+    @app.middleware("http")
+    async def apply_idempotency(request: Request, call_next):
+        if request.method != "POST":
+            return await call_next(request)
+        key = request.headers.get("Idempotency-Key")
+        if not key:
+            return await call_next(request)
 
-    @app.get("/projects")
-    def projects(config_root: str = "configs") -> dict[str, list[str]]:
-        return {"items": list_project_names(Path(config_root))}
-
-    @app.get("/runs")
-    def runs(runs_root: str = "runs") -> dict[str, list[dict[str, str]]]:
-        return {"items": list_run_summaries(Path(runs_root))}
-
-    @app.get("/runs/{run_id}")
-    def run_detail(run_id: str, runs_root: str = "runs") -> dict:
-        return load_run_summary(Path(runs_root), run_id)
-
-    @app.get("/runs/{run_id}/tasks")
-    def run_tasks(run_id: str, runs_root: str = "runs") -> dict[str, list[dict]]:
-        return {"items": list_task_results(Path(runs_root), run_id)}
-
-    @app.get("/runs/{run_id}/trace")
-    def run_trace(run_id: str, runs_root: str = "runs") -> dict[str, list[dict]]:
-        return {"items": list_trace_events(Path(runs_root), run_id)}
-
-    @app.get("/runs/{run_id}/evaluators")
-    def run_evaluators(run_id: str, runs_root: str = "runs") -> dict[str, list[dict]]:
-        return {"items": list_evaluator_reports(Path(runs_root), run_id)}
-
-    @app.get("/jobs")
-    def jobs(
-        reports_root: str = "reports",
-        repo_root: str | None = None,
-        status: str | None = None,
-        job_type: str | None = None,
-    ) -> dict[str, list[dict]]:
-        return {
-            "items": list_job_views(
-                reports_root=Path(reports_root),
-                repo_root=Path(repo_root) if repo_root is not None else None,
-                status=status,
-                job_type=job_type,
+        body = await request.body()
+        fingerprint = hashlib.sha256(
+            b"|".join(
+                [
+                    request.method.encode("utf-8"),
+                    request.url.path.encode("utf-8"),
+                    body,
+                ]
             )
-        }
-
-    @app.get("/jobs/{job_id}")
-    def job_detail(
-        job_id: str,
-        reports_root: str = "reports",
-        repo_root: str | None = None,
-    ) -> dict:
-        return load_job_view(
-            reports_root=Path(reports_root),
-            job_id=job_id,
-            repo_root=Path(repo_root) if repo_root is not None else None,
-        )
-
-    @app.get("/candidates/current")
-    def candidates_current(
-        candidates_root: str = "candidates",
-        runs_root: str | None = None,
-    ) -> dict:
-        resolved_runs_root = Path(runs_root) if runs_root is not None else None
-        return candidate_current_view_payload(
-            candidates_root=Path(candidates_root),
-            runs_root=resolved_runs_root,
-        )
-
-    @app.get("/champions")
-    def champions(candidates_root: str = "candidates") -> dict[str, dict[str, str]]:
-        return {"items": list_champions(Path(candidates_root))}
-
-    @app.get("/observations/summary")
-    def observation_summary(
-        profile: str,
-        project: str,
-        runs_root: str = "runs",
-        config_root: str = "configs",
-        limit: int | None = None,
-    ) -> dict:
-        return observe_summary_payload(
-            runs_root=Path(runs_root),
-            profile_name=profile,
-            project_name=project,
-            config_root=Path(config_root),
-            limit=limit,
-        )
-
-    @app.post("/observations/benchmark")
-    def observation_benchmark(request: ObservationBenchmarkRequest) -> dict:
-        return submit_observation_benchmark_job(
-            reports_root=Path(request.reports_root),
-            config_root=Path(request.config_root),
-            runs_root=Path(request.runs_root),
-            candidates_root=Path(request.candidates_root),
-            profile_name=request.profile,
-            project_name=request.project,
-            task_set_path=Path(request.task_set_path),
-            spec_path=Path(request.spec_path),
-            focus=request.focus,
-            auto_compact_runs=request.auto_compact_runs,
-            requested_by=request.requested_by,
-        )
-
-    @app.get("/strategies/inspect")
-    def strategy_inspect(
-        strategy_card_path: str,
-        config_root: str,
-        profile: str,
-        project: str,
-    ) -> dict:
-        return inspect_strategy_card_payload(
-            strategy_card_path=Path(strategy_card_path),
-            profile_name=profile,
-            project_name=project,
-            config_root=Path(config_root),
-        )
-
-    @app.get("/workflows/inspect")
-    def workflow_inspect(workflow_path: str) -> dict:
-        return inspect_workflow_payload(workflow_path=Path(workflow_path))
-
-    @app.post("/workflows/compile")
-    def workflow_compile(request: WorkflowCompileRequest) -> dict:
-        return success_response(
-            compile_workflow_payload(
-                workflow_path=Path(request.workflow_path),
-                output_path=Path(request.output_path),
+        ).hexdigest()
+        cache_key = f"{request.method}:{request.url.path}:{key}"
+        cached = app.state.idempotency_cache.get(cache_key)
+        if cached is not None:
+            if cached["fingerprint"] != fingerprint:
+                return JSONResponse(
+                    status_code=409,
+                    content={"detail": "Idempotency-Key conflict"},
+                )
+            return JSONResponse(
+                status_code=int(cached["status_code"]),
+                content=cached["body"],
             )
-        )
 
-    @app.post("/workflows/run")
-    def workflow_run(request: WorkflowRunRequest) -> dict:
-        return execute_inline_job(
-            reports_root=Path(request.reports_root),
-            job_type="workflow.run",
-            requested_by=request.requested_by,
-            job_input={
-                "workflow_path": request.workflow_path,
-                "profile": request.profile,
-                "project": request.project,
-            },
-            runner=lambda: run_workflow_payload(
-                workflow_path=Path(request.workflow_path),
-                profile_name=request.profile,
-                project_name=request.project,
-                config_root=Path(request.config_root),
-                runs_root=Path(request.runs_root),
-            ),
-            result_ref_builder=lambda data: {
-                "target_type": "run",
-                "target_id": data["run_id"],
-                "path": f"runs/{data['run_id']}/score_report.json",
-            },
-        )
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": body, "more_body": False}
 
-    @app.post("/workflows/benchmark")
-    def workflow_benchmark(request: WorkflowBenchmarkRequest) -> dict:
-        return execute_inline_job(
-            reports_root=Path(request.reports_root),
-            job_type="workflow.benchmark",
-            requested_by=request.requested_by,
-            job_input={
-                "workflow_path": request.workflow_path,
-                "profile": request.profile,
-                "project": request.project,
-                "spec_path": request.spec_path,
-                "focus": request.focus,
-            },
-            runner=lambda: benchmark_workflow_payload(
-                workflow_path=Path(request.workflow_path),
-                profile_name=request.profile,
-                project_name=request.project,
-                spec_path=Path(request.spec_path),
-                config_root=Path(request.config_root),
-                runs_root=Path(request.runs_root),
-                candidates_root=Path(request.candidates_root),
-                focus=request.focus,
-            ),
-            result_ref_builder=lambda data: {
-                "target_type": "benchmark_experiment",
-                "target_id": data["experiment"],
-                "path": str(
-                    write_benchmark_report(
-                        reports_root=Path(request.reports_root),
-                        payload=data,
-                    ).relative_to(Path(request.reports_root).parent)
-                ),
-            },
-        )
+        response = await call_next(Request(request.scope, receive))
+        response_body = b""
+        async for chunk in response.body_iterator:
+            response_body += chunk
 
-    @app.post("/workflows/benchmark-suite")
-    def workflow_benchmark_suite(request: WorkflowBenchmarkSuiteRequest) -> dict:
-        return execute_inline_job(
-            reports_root=Path(request.reports_root),
-            job_type="workflow.benchmark_suite",
-            requested_by=request.requested_by,
-            job_input={
-                "workflow_path": request.workflow_path,
-                "profile": request.profile,
-                "project": request.project,
-                "suite_path": request.suite_path,
-            },
-            runner=lambda: benchmark_suite_workflow_payload(
-                workflow_path=Path(request.workflow_path),
-                profile_name=request.profile,
-                project_name=request.project,
-                suite_path=Path(request.suite_path),
-                config_root=Path(request.config_root),
-                runs_root=Path(request.runs_root),
-                candidates_root=Path(request.candidates_root),
-            ),
-            result_ref_builder=lambda data: {
-                "target_type": "benchmark_suite",
-                "target_id": data["suite"],
-                "path": str(
-                    write_benchmark_suite_report(
-                        reports_root=Path(request.reports_root),
-                        payload=data,
-                    ).relative_to(Path(request.reports_root).parent)
-                ),
-            },
+        media_type = response.media_type or response.headers.get("content-type")
+        headers = dict(response.headers)
+        rebuilt_response = Response(
+            content=response_body,
+            status_code=response.status_code,
+            headers=headers,
+            media_type=media_type,
         )
+        if 200 <= response.status_code < 500 and "application/json" in str(media_type):
+            app.state.idempotency_cache[cache_key] = {
+                "fingerprint": fingerprint,
+                "status_code": response.status_code,
+                "body": json.loads(response_body.decode("utf-8") or "null"),
+            }
+        return rebuilt_response
 
-    @app.post("/runs/{run_id}/score")
-    def run_score(run_id: str, request: RunScoreRequest) -> dict:
-        return submit_run_score_job(
-            reports_root=Path(request.reports_root),
-            runs_root=Path(request.runs_root),
-            run_id=run_id,
-            evaluator_names=request.evaluators,
-            requested_by=request.requested_by,
-        )
-
-    @app.post("/runs/{run_id}/export-trace")
-    def run_export_trace(run_id: str, request: RunExportTraceRequest) -> dict:
-        return submit_run_export_trace_job(
-            reports_root=Path(request.reports_root),
-            runs_root=Path(request.runs_root),
-            run_id=run_id,
-            output_path=Path(request.output_path),
-            export_format=request.format,
-            requested_by=request.requested_by,
-        )
-
-    @app.post("/datasets/extract-failures")
-    def dataset_extract_failures(request: DatasetExtractFailuresRequest) -> dict:
-        return submit_dataset_extract_job(
-            reports_root=Path(request.reports_root),
-            runs_root=Path(request.runs_root),
-            output_path=Path(request.output_path),
-            profile_name=request.profile,
-            project_name=request.project,
-            requested_by=request.requested_by,
-        )
-
-    @app.post("/optimize/propose")
-    def optimize_propose(request: OptimizeProposeRequest) -> dict:
-        return submit_optimize_propose_job(
-            reports_root=Path(request.reports_root),
-            config_root=Path(request.config_root),
-            runs_root=Path(request.runs_root),
-            candidates_root=Path(request.candidates_root),
-            profile_name=request.profile,
-            project_name=request.project,
-            requested_by=request.requested_by,
-        )
-
-    @app.post("/strategies/create-candidate")
-    def strategy_create_candidate(request: StrategyCreateCandidateRequest) -> dict:
-        return success_response(
-            create_candidate_from_strategy_card_payload(
-                strategy_card_path=Path(request.strategy_card_path),
-                profile_name=request.profile,
-                project_name=request.project,
-                config_root=Path(request.config_root),
-                candidates_root=Path(request.candidates_root),
-            )
-        )
-
-    @app.post("/strategies/benchmark")
-    def strategy_benchmark(request: StrategyBenchmarkRequest) -> dict:
-        return submit_strategy_benchmark_job(
-            reports_root=Path(request.reports_root),
-            strategy_card_paths=[Path(path) for path in request.strategy_card_paths],
-            config_root=Path(request.config_root),
-            runs_root=Path(request.runs_root),
-            candidates_root=Path(request.candidates_root),
-            profile_name=request.profile,
-            project_name=request.project,
-            task_set_path=Path(request.task_set_path),
-            experiment=request.experiment,
-            baseline_name=request.baseline,
-            focus=request.focus,
-            template=request.template,
-            requested_by=request.requested_by,
-        )
-
-    @app.post("/candidates/{candidate_id}/promote")
-    def candidate_promote(candidate_id: str, request: PromoteCandidateRequest) -> dict:
-        return success_response(
-            promote_candidate_record(Path(request.candidates_root), candidate_id)
-        )
+    register_core_routes(app)
+    register_data_ops_routes(app)
+    register_integration_routes(app)
+    register_execution_ops_routes(app)
 
     return app

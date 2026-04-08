@@ -1,0 +1,130 @@
+{
+  "primitive_id": "data_analysis",
+  "version": "v1",
+  "kind": "analysis_reasoning",
+  "description": "Analyze structured data and produce grounded summaries for downstream decisions.",
+  "output_contract": {
+    "bridge": {
+      "prompt_mode": "json_schema",
+      "response_fields": [
+        {
+          "name": "analysis_summary",
+          "type": "object",
+          "required_fields_from": "task.expectations.required_fields"
+        },
+        {
+          "name": "analysis_report",
+          "type": "markdown"
+        }
+      ],
+      "artifact_writes": [
+        {
+          "path": "analysis_summary.json",
+          "payload_path": "analysis_summary",
+          "format": "json"
+        },
+        {
+          "path": "analysis_report.md",
+          "payload_path": "analysis_report",
+          "format": "text"
+        }
+      ],
+      "benchmark_probe": {
+        "fingerprints": {
+          "analysis.mode": "${workflow.primitives.data_analysis.analysis_mode}"
+        },
+        "probes": {
+          "analysis.plan_step_count": "${workflow.primitives.data_analysis.max_plan_steps}",
+          "analysis.retry_count": "${workflow.primitives.data_analysis.retry_limit}"
+        }
+      }
+    }
+  },
+  "evaluation_contract": {
+    "artifact_requirements": [
+      "analysis_summary.json",
+      "analysis_report.md"
+    ],
+    "quality_thresholds": {
+      "field_completeness": 0.8,
+      "grounded_field_rate": 0.75
+    }
+  },
+  "metric_schema": [
+    {
+      "name": "success_rate",
+      "kind": "float",
+      "higher_is_better": true,
+      "required": true
+    },
+    {
+      "name": "latency_ms",
+      "kind": "int",
+      "higher_is_better": false,
+      "required": false
+    }
+  ],
+  "probe_schema": {
+    "fingerprints": [
+      "analysis.mode"
+    ],
+    "probes": [
+      "analysis.plan_step_count",
+      "analysis.retry_count"
+    ]
+  },
+  "default_knobs": {
+    "sample_rows": 200,
+    "max_plan_steps": 4
+  },
+  "default_scenarios": [
+    {
+      "id": "tabular_summary",
+      "weight": 1.0
+    },
+    {
+      "id": "trend_detection",
+      "weight": 1.2
+    }
+  ],
+  "proposal_templates": [
+    {
+      "template_id": "data_analysis/sample_then_plan",
+      "title": "Sample Then Plan",
+      "hypothesis": "Start with a compact sample and explicit plan to improve speed without losing groundedness.",
+      "knobs": {
+        "sample_rows": 120,
+        "max_plan_steps": 3,
+        "analysis_mode": "sample_then_plan"
+      },
+      "expected_signals": {
+        "fingerprints": {
+          "analysis.mode": "sample_then_plan"
+        }
+      },
+      "tags": [
+        "latency"
+      ]
+    },
+    {
+      "template_id": "data_analysis/retry_hardening",
+      "title": "Retry Hardening",
+      "hypothesis": "Allow one bounded retry to improve stability on flaky analysis tasks.",
+      "knobs": {
+        "sample_rows": 200,
+        "max_plan_steps": 4,
+        "retry_limit": 1
+      },
+      "expected_signals": {
+        "probes": {
+          "analysis.retry_count": {
+            "max": 1
+          }
+        }
+      },
+      "tags": [
+        "stability"
+      ]
+    }
+  ]
+}

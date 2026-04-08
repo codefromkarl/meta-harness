@@ -1,0 +1,96 @@
+{
+  "experiment": "demo-openclaw-websearch-analysis",
+  "baseline": "baseline",
+  "analysis_mode": "architecture",
+  "report": {
+    "group_by": [
+      "scenario",
+      "variant_type"
+    ],
+    "primary_axes": [
+      "quality",
+      "mechanism",
+      "stability"
+    ]
+  },
+  "variants": [
+    {
+      "name": "baseline",
+      "variant_type": "parameter",
+      "hypothesis": "A direct low-cost OpenClaw prompt gives the fastest but least robust results."
+    },
+    {
+      "name": "stable",
+      "variant_type": "method_family",
+      "hypothesis": "A stricter extraction prompt plus bounded retries improves groundedness and end-to-end success.",
+      "config_patch": {
+        "workflow": {
+          "primitives": {
+            "web_scrape": {
+              "pipeline": "stable",
+              "retry_limit": 2,
+              "timeout_ms": 9000
+            },
+            "data_analysis": {
+              "analysis_mode": "sample_then_plan",
+              "max_plan_steps": 3,
+              "retry_limit": 1
+            }
+          }
+        },
+        "runtime": {
+          "binding": {
+            "timeout": 60
+          }
+        }
+      },
+      "expected_signals": {
+        "fingerprints": {
+          "analysis.mode": "sample_then_plan",
+          "scrape.mode": "stable"
+        }
+      },
+      "tags": [
+        "openclaw",
+        "stability"
+      ]
+    },
+    {
+      "name": "high_accuracy",
+      "variant_type": "method_family",
+      "hypothesis": "A high-accuracy prompt with longer reasoning budget increases success on ambiguous comparison tasks at higher cost.",
+      "config_patch": {
+        "workflow": {
+          "primitives": {
+            "web_scrape": {
+              "pipeline": "high_accuracy",
+              "retry_limit": 3,
+              "timeout_ms": 12000
+            },
+            "data_analysis": {
+              "analysis_mode": "high_accuracy",
+              "max_plan_steps": 4,
+              "retry_limit": 1
+            }
+          }
+        },
+        "runtime": {
+          "binding": {
+            "timeout": 90,
+            "thinking": "high"
+          }
+        }
+      },
+      "expected_signals": {
+        "fingerprints": {
+          "analysis.mode": "high_accuracy",
+          "scrape.mode": "high_accuracy"
+        }
+      },
+      "tags": [
+        "openclaw",
+        "quality"
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ from meta_harness.primitive_registry import (
     load_primitive_pack,
     load_registered_primitive_pack,
 )
+from meta_harness.transfer import load_claw_binding
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -90,8 +91,23 @@ def test_repository_pack_assets_exist() -> None:
     evaluator = load_evaluator_pack(
         repo_root / "configs" / "evaluator_packs" / "web_scrape_core.json"
     )
+    web_binding = load_claw_binding(
+        repo_root / "configs",
+        "bridge/web_scrape",
+    )
+    analysis_binding = load_claw_binding(
+        repo_root / "configs",
+        "bridge/data_analysis",
+    )
 
     assert primitive.primitive_id == "web_scrape"
+    assert primitive.evaluation_contract.artifact_requirements == [
+        "page.html",
+        "extracted.json",
+    ]
     assert primitive.proposal_templates[0].template_id == "web_scrape/fast_path"
     assert evaluator.pack_id == "web_scrape/core"
     assert evaluator.supported_primitives == ["web_scrape"]
+    assert web_binding.adapter_kind == "json_agent_cli"
+    assert web_binding.execution["bridge_contract"] == "primitive_output"
+    assert analysis_binding.primitive_id == "data_analysis"

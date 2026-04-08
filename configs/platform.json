@@ -6,5 +6,15 @@
   "retrieval": {
     "top_k": 8,
     "chunk_size": 1000
+  },
+  "archive": {
+    "compaction": {
+      "include_artifacts": false,
+      "cleanup_auxiliary_dirs": true,
+      "compactable_statuses": ["valid", "superseded", "failed", "partial"]
+    },
+    "cleanup_logs": {
+      "retention": 10
+    }
   }
 }

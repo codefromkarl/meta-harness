@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from meta_harness.config_loader import load_effective_config
+from meta_harness.config_loader import load_effective_config, load_platform_config
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -49,3 +49,33 @@ def test_load_effective_config_merges_platform_profile_and_project(tmp_path: Pat
     assert effective["retrieval"] == {"top_k": 12, "chunk_size": 1200}
     assert effective["tools"] == ["rg", "cargo"]
     assert effective["style"] == {"naming": "idiomatic-rust"}
+
+
+def test_load_platform_config_can_merge_project_overrides(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    write_json(
+        config_root / "platform.json",
+        {
+            "archive": {
+                "cleanup_logs": {"retention": 10},
+                "compaction": {"include_artifacts": False},
+            }
+        },
+    )
+    write_json(
+        config_root / "projects" / "demo.json",
+        {
+            "workflow": "base",
+            "overrides": {
+                "archive": {
+                    "cleanup_logs": {"retention": 3},
+                    "compaction": {"include_artifacts": True},
+                }
+            },
+        },
+    )
+
+    platform = load_platform_config(config_root, project_name="demo")
+
+    assert platform["archive"]["cleanup_logs"]["retention"] == 3
+    assert platform["archive"]["compaction"]["include_artifacts"] is True

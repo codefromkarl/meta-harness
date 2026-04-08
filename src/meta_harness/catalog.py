@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 import shutil
 from typing import Any
+from datetime import datetime, timezone
+from uuid import uuid4
+
+_DEFAULT_CLEANUP_LOG_RETENTION = 10
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -13,7 +17,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 def _benchmark_family(experiment: str | None) -> str | None:
     if not experiment:
         return None
-    prefix = "contextatlas_"
+    prefix = "benchmark_"
     if experiment.startswith(prefix):
         return experiment[len(prefix) :]
     return experiment
@@ -412,6 +416,7 @@ def archive_runs(
     *,
     archive_root: Path,
     candidates_root: Path | None = None,
+    cleanup_log_retention: int | None = None,
     dry_run: bool = False,
     experiment: str | None = None,
     benchmark_family: str | None = None,
@@ -429,22 +434,54 @@ def archive_runs(
         status=status,
     )
     archived: list[str] = []
+    target_records: list[dict[str, Any]] = []
     archive_runs_root = archive_root / "runs"
     archive_runs_root.mkdir(parents=True, exist_ok=True)
-    for run_id in [item["run_id"] for item in selected_runs]:
+    for item in selected_runs:
+        run_id = item["run_id"]
         source = runs_root / run_id
         if not source.exists():
             continue
+        archive_path = archive_runs_root / run_id
         if not dry_run:
-            shutil.move(str(source), str(archive_runs_root / run_id))
+            shutil.move(str(source), str(archive_path))
         archived.append(run_id)
-    return {"dry_run": dry_run, "archived_runs": archived}
+        target_records.append(
+            {
+                "target_id": run_id,
+                "target_type": "run",
+                "status": item.get("status"),
+                "experiment": item.get("experiment"),
+                "benchmark_family": item.get("benchmark_family"),
+                "variant": item.get("variant"),
+                "source_path": str(source),
+                "archive_path": str(archive_path),
+            }
+        )
+    manifest_id = _write_cleanup_log(
+        archive_root,
+        operation="run.archive",
+        targets=archived,
+        target_records=target_records,
+        dry_run=dry_run,
+        target_type="run",
+        source_root=runs_root,
+        filters={
+            "experiment": experiment,
+            "benchmark_family": benchmark_family,
+            "status": status,
+        },
+        retention=cleanup_log_retention,
+    )
+    return {"dry_run": dry_run, "archived_runs": archived, "manifest_id": manifest_id}
 
 
 def prune_runs(
     runs_root: Path,
     *,
     candidates_root: Path | None = None,
+    archive_root: Path = Path("archive"),
+    cleanup_log_retention: int | None = None,
     dry_run: bool = False,
     experiment: str | None = None,
     benchmark_family: str | None = None,
@@ -462,14 +499,43 @@ def prune_runs(
         status=status,
     )
     deleted: list[str] = []
-    for run_id in [item["run_id"] for item in selected_runs]:
+    target_records: list[dict[str, Any]] = []
+    for item in selected_runs:
+        run_id = item["run_id"]
         path = runs_root / run_id
         if not path.exists():
             continue
         if not dry_run:
             shutil.rmtree(path)
         deleted.append(run_id)
-    return {"dry_run": dry_run, "deleted_runs": deleted}
+        target_records.append(
+            {
+                "target_id": run_id,
+                "target_type": "run",
+                "status": item.get("status"),
+                "experiment": item.get("experiment"),
+                "benchmark_family": item.get("benchmark_family"),
+                "variant": item.get("variant"),
+                "source_path": str(path),
+                "archive_path": None,
+            }
+        )
+    manifest_id = _write_cleanup_log(
+        archive_root,
+        operation="run.prune",
+        targets=deleted,
+        target_records=target_records,
+        dry_run=dry_run,
+        target_type="run",
+        source_root=runs_root,
+        filters={
+            "experiment": experiment,
+            "benchmark_family": benchmark_family,
+            "status": status,
+        },
+        retention=cleanup_log_retention,
+    )
+    return {"dry_run": dry_run, "deleted_runs": deleted, "manifest_id": manifest_id}
 
 
 def archive_candidates(
@@ -477,6 +543,7 @@ def archive_candidates(
     *,
     archive_root: Path,
     runs_root: Path | None = None,
+    cleanup_log_retention: int | None = None,
     dry_run: bool = False,
     experiment: str | None = None,
     benchmark_family: str | None = None,
@@ -492,22 +559,58 @@ def archive_candidates(
         benchmark_family=benchmark_family,
     )
     archived: list[str] = []
+    target_records: list[dict[str, Any]] = []
     archive_candidates_root = archive_root / "candidates"
     archive_candidates_root.mkdir(parents=True, exist_ok=True)
-    for candidate_id in [item["candidate_id"] for item in selected_candidates]:
+    for item in selected_candidates:
+        candidate_id = item["candidate_id"]
         source = candidates_root / candidate_id
         if not source.exists():
             continue
+        archive_path = archive_candidates_root / candidate_id
         if not dry_run:
-            shutil.move(str(source), str(archive_candidates_root / candidate_id))
+            shutil.move(str(source), str(archive_path))
         archived.append(candidate_id)
-    return {"dry_run": dry_run, "archived_candidates": archived}
+        target_records.append(
+            {
+                "target_id": candidate_id,
+                "target_type": "candidate",
+                "status": item.get("status"),
+                "experiment": item.get("experiment"),
+                "benchmark_family": item.get("benchmark_family"),
+                "variant": item.get("variant"),
+                "source_path": str(source),
+                "archive_path": str(archive_path),
+            }
+        )
+    manifest_id = _write_cleanup_log(
+        archive_root,
+        operation="candidate.archive",
+        targets=archived,
+        target_records=target_records,
+        dry_run=dry_run,
+        target_type="candidate",
+        source_root=candidates_root,
+        filters={
+            "experiment": experiment,
+            "benchmark_family": benchmark_family,
+            "status": None,
+        },
+        retention=cleanup_log_retention,
+    )
+    return {
+        "dry_run": dry_run,
+        "archived_candidates": archived,
+        "manifest_id": manifest_id,
+    }
 
 
 def prune_candidates(
     candidates_root: Path,
     *,
     runs_root: Path | None = None,
+    archive_root: Path = Path("archive"),
+    cleanup_log_retention: int | None = None,
     dry_run: bool = False,
     experiment: str | None = None,
     benchmark_family: str | None = None,
@@ -523,11 +626,122 @@ def prune_candidates(
         benchmark_family=benchmark_family,
     )
     deleted: list[str] = []
-    for candidate_id in [item["candidate_id"] for item in selected_candidates]:
+    target_records: list[dict[str, Any]] = []
+    for item in selected_candidates:
+        candidate_id = item["candidate_id"]
         path = candidates_root / candidate_id
         if not path.exists():
             continue
         if not dry_run:
             shutil.rmtree(path)
         deleted.append(candidate_id)
-    return {"dry_run": dry_run, "deleted_candidates": deleted}
+        target_records.append(
+            {
+                "target_id": candidate_id,
+                "target_type": "candidate",
+                "status": item.get("status"),
+                "experiment": item.get("experiment"),
+                "benchmark_family": item.get("benchmark_family"),
+                "variant": item.get("variant"),
+                "source_path": str(path),
+                "archive_path": None,
+            }
+        )
+    manifest_id = _write_cleanup_log(
+        archive_root,
+        operation="candidate.prune",
+        targets=deleted,
+        target_records=target_records,
+        dry_run=dry_run,
+        target_type="candidate",
+        source_root=candidates_root,
+        filters={
+            "experiment": experiment,
+            "benchmark_family": benchmark_family,
+            "status": None,
+        },
+        retention=cleanup_log_retention,
+    )
+    return {
+        "dry_run": dry_run,
+        "deleted_candidates": deleted,
+        "manifest_id": manifest_id,
+    }
+
+
+def _write_cleanup_log(
+    archive_root: Path,
+    *,
+    operation: str,
+    targets: list[str],
+    target_records: list[dict[str, Any]],
+    dry_run: bool,
+    target_type: str,
+    source_root: Path,
+    filters: dict[str, Any],
+    retention: int | None = None,
+) -> str:
+    logs_root = archive_root / "cleanup_logs"
+    logs_root.mkdir(parents=True, exist_ok=True)
+    manifest_id = f"{uuid4().hex[:12]}.json"
+    manifest_payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "operation": operation,
+        "target_type": target_type,
+        "targets": targets,
+        "target_records": target_records,
+        "dry_run": dry_run,
+        "source_root": str(source_root),
+        "archive_root": str(archive_root),
+        "filters": filters,
+    }
+    (logs_root / manifest_id).write_text(
+        json.dumps(manifest_payload, indent=2), encoding="utf-8"
+    )
+    with (logs_root / "cleanup_log.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps({"manifest_id": manifest_id, **manifest_payload}) + "\n"
+        )
+    _enforce_cleanup_log_retention(logs_root, max_entries=retention)
+    return manifest_id
+
+
+def _enforce_cleanup_log_retention(
+    logs_root: Path,
+    *,
+    max_entries: int | None = None,
+) -> None:
+    if max_entries is None:
+        max_entries = _DEFAULT_CLEANUP_LOG_RETENTION
+    log_path = logs_root / "cleanup_log.jsonl"
+    if max_entries <= 0:
+        retained_entries: list[dict[str, Any]] = []
+    elif log_path.exists():
+        retained_entries = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ][-max_entries:]
+    else:
+        retained_entries = []
+
+    retained_manifest_ids = {
+        str(entry.get("manifest_id"))
+        for entry in retained_entries
+        if entry.get("manifest_id")
+    }
+
+    if log_path.exists():
+        content = ""
+        if retained_entries:
+            content = "\n".join(
+                json.dumps(entry, ensure_ascii=False) for entry in retained_entries
+            ) + "\n"
+        log_path.write_text(content, encoding="utf-8")
+
+    for manifest_path in logs_root.glob("*.json"):
+        if manifest_path.name == "cleanup_log.jsonl":
+            continue
+        if manifest_path.name in retained_manifest_ids:
+            continue
+        manifest_path.unlink()

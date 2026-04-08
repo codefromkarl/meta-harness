@@ -1,0 +1,71 @@
+{
+  "strategy_id": "web_scrape/headless-fingerprint-proxy",
+  "title": "Headless Fingerprint Proxy",
+  "source": "reference://web_scrape/headless_fingerprint_proxy",
+  "category": "web_scrape",
+  "primitive_id": "web_scrape",
+  "capability_metadata": {
+    "page_profile": {
+      "complexity": "high",
+      "render_required": true,
+      "interaction_required": true,
+      "anti_bot_level": "high",
+      "schema_stability": "medium"
+    },
+    "workload_profile": {
+      "mode": "recurring",
+      "usage_mode": "recurring",
+      "batch_size": 100,
+      "latency_sla_ms": 5000,
+      "freshness_requirement": "high",
+      "allowed_failure_rate": "low"
+    }
+  },
+  "priority": 8,
+  "change_type": "config_only",
+  "variant_type": "method_family",
+  "variant_name": "headless_fingerprint_proxy",
+  "hypothesis": "Dynamic and anti-bot heavy pages should use a headless browser with fingerprint and proxy hardening for repeatable recurring extraction.",
+  "expected_benefits": [
+    "better success rate on anti-bot pages",
+    "stable recurring automation",
+    "supports interactive flows"
+  ],
+  "expected_costs": [
+    "requires proxy management",
+    "higher runtime overhead than selector-based extraction",
+    "more operational complexity"
+  ],
+  "config_patch": {
+    "workflow": {
+      "primitives": {
+        "web_scrape": {
+          "pipeline": "headless_fingerprint_proxy",
+          "browser_mode": "headless",
+          "proxy_pool": true,
+          "timeout_ms": 11000
+        }
+      }
+    }
+  },
+  "expected_signals": {
+    "fingerprints": {
+      "scrape.mode": "headless"
+    },
+    "probes": {
+      "scrape.retry_count": {
+        "max": 3
+      }
+    }
+  },
+  "risk_notes": [
+    "preferred for recurring anti-bot workloads"
+  ],
+  "tags": [
+    "web_scrape",
+    "headless",
+    "proxy",
+    "recurring",
+    "high-complexity"
+  ]
+}

@@ -53,6 +53,8 @@ def write_web_scrape_pack_assets(config_root: Path) -> None:
 
 def test_workflow_inspect_reports_summary(tmp_path: Path) -> None:
     workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    config_root = tmp_path / "configs"
+    write_web_scrape_pack_assets(config_root)
     write_json(
         workflow_path,
         {
@@ -82,6 +84,8 @@ def test_workflow_inspect_reports_summary(tmp_path: Path) -> None:
             "inspect",
             "--workflow",
             str(workflow_path),
+            "--config-root",
+            str(config_root),
         ],
     )
 
@@ -95,9 +99,66 @@ def test_workflow_inspect_reports_summary(tmp_path: Path) -> None:
     }
 
 
+def test_workflow_inspect_reports_artifact_drift_before_execution(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    write_json(
+        config_root / "primitives" / "web_scrape.json",
+        {
+            "primitive_id": "web_scrape",
+            "kind": "browser_interaction",
+            "evaluation_contract": {
+                "artifact_requirements": ["page.html", "extracted.json"],
+            },
+        },
+    )
+    write_json(
+        config_root / "evaluator_packs" / "web_scrape_core.json",
+        {
+            "pack_id": "web_scrape/core",
+            "supported_primitives": ["web_scrape"],
+            "command": ["python", "scripts/eval_web_scrape.py"],
+            "artifact_requirements": ["page.html"],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "evaluator_packs": ["web_scrape/core"],
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "scripts/fetch.py"],
+                }
+            ],
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "workflow",
+            "inspect",
+            "--workflow",
+            str(workflow_path),
+            "--config-root",
+            str(config_root),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "artifact requirements" in result.stdout or "artifact requirements" in str(
+        result.exception
+    )
+
+
 def test_workflow_compile_writes_runtime_task_set(tmp_path: Path) -> None:
     workflow_path = tmp_path / "workflows" / "news_aggregation.json"
     output_path = tmp_path / "compiled" / "news_aggregation.task_set.json"
+    config_root = tmp_path / "configs"
     write_json(
         workflow_path,
         {
@@ -122,6 +183,8 @@ def test_workflow_compile_writes_runtime_task_set(tmp_path: Path) -> None:
             str(workflow_path),
             "--output",
             str(output_path),
+            "--config-root",
+            str(config_root),
         ],
     )
 
@@ -130,6 +193,113 @@ def test_workflow_compile_writes_runtime_task_set(tmp_path: Path) -> None:
     assert payload["workflow_id"] == "news_aggregation"
     assert payload["tasks"][0]["task_id"] == "fetch_homepages"
     assert Path(result.stdout.strip()) == output_path
+
+
+def test_workflow_compile_reports_artifact_drift_before_execution(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    output_path = tmp_path / "compiled" / "news_aggregation.task_set.json"
+    write_json(
+        config_root / "primitives" / "web_scrape.json",
+        {
+            "primitive_id": "web_scrape",
+            "kind": "browser_interaction",
+            "evaluation_contract": {
+                "artifact_requirements": ["page.html", "extracted.json"],
+            },
+        },
+    )
+    write_json(
+        config_root / "evaluator_packs" / "web_scrape_core.json",
+        {
+            "pack_id": "web_scrape/core",
+            "supported_primitives": ["web_scrape"],
+            "command": ["python", "scripts/eval_web_scrape.py"],
+            "artifact_requirements": ["page.html"],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "evaluator_packs": ["web_scrape/core"],
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "scripts/fetch.py"],
+                }
+            ],
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "workflow",
+            "compile",
+            "--workflow",
+            str(workflow_path),
+            "--output",
+            str(output_path),
+            "--config-root",
+            str(config_root),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "artifact requirements" in result.stdout or "artifact requirements" in str(
+        result.exception
+    )
+
+
+def test_workflow_compile_rejects_unactivated_generated_binding(tmp_path: Path) -> None:
+    config_root = tmp_path / "configs"
+    workflow_path = tmp_path / "workflows" / "generated_binding.json"
+    output_path = tmp_path / "compiled" / "generated_binding.task_set.json"
+    write_json(
+        config_root / "claw_bindings" / "generated" / "web_scrape.json",
+        {
+            "binding_id": "generated/web_scrape",
+            "claw_family": "generated",
+            "primitive_id": "web_scrape",
+            "adapter_kind": "command",
+            "execution": {"command": ["python", "wrapper.py"]},
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "generated_binding",
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "binding_id": "generated/web_scrape",
+                    "command": ["python", "scripts/fetch.py"],
+                }
+            ],
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "workflow",
+            "compile",
+            "--workflow",
+            str(workflow_path),
+            "--output",
+            str(output_path),
+            "--config-root",
+            str(config_root),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "activated review" in result.stdout or "activated review" in str(result.exception)
 
 
 def test_workflow_run_compiles_then_executes_managed_run(
@@ -278,6 +448,7 @@ def test_workflow_benchmark_compiles_then_runs_benchmark(
 ) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
     repo_root = tmp_path / "repo"
     candidates_root = tmp_path / "candidates"
     workflow_path = tmp_path / "workflows" / "news_aggregation.json"
@@ -339,6 +510,8 @@ def test_workflow_benchmark_compiles_then_runs_benchmark(
             str(runs_root),
             "--candidates-root",
             str(candidates_root),
+            "--reports-root",
+            str(reports_root),
             "--spec",
             str(benchmark_spec),
         ],
@@ -347,8 +520,90 @@ def test_workflow_benchmark_compiles_then_runs_benchmark(
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["experiment"] == "workflow-ab"
+    assert payload["artifact_path"] == "reports/benchmarks/workflow-ab.json"
+    assert (tmp_path / payload["artifact_path"]).exists()
+
+
+def test_workflow_benchmark_cli_can_auto_evaluate_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow_path = tmp_path / "workflows" / "news_aggregation.json"
+    benchmark_spec = tmp_path / "benchmark.json"
+    config_root = tmp_path / "configs"
+
+    write_json(
+        config_root / "gate_policies" / "benchmark-pass.json",
+        {
+            "policy_id": "benchmark-pass",
+            "policy_type": "benchmark",
+            "conditions": [],
+        },
+    )
+    write_json(
+        workflow_path,
+        {
+            "workflow_id": "news_aggregation",
+            "steps": [
+                {
+                    "step_id": "fetch_homepages",
+                    "primitive_id": "web_scrape",
+                    "command": ["python", "scripts/fetch.py"],
+                }
+            ],
+        },
+    )
+    write_json(
+        benchmark_spec,
+        {"experiment": "workflow-ab", "baseline": "baseline", "variants": [{"name": "baseline"}]},
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_benchmark_workflow_payload(**kwargs):
+        captured.update(kwargs)
+        return {
+            "experiment": "workflow-ab",
+            "artifact_path": "reports/benchmarks/workflow-ab.json",
+            "gate_result": {"status": "passed", "policy_id": "benchmark-pass"},
+        }
+
+    monkeypatch.setattr(
+        "meta_harness.cli_profile_workflow_integration.benchmark_workflow_payload",
+        fake_benchmark_workflow_payload,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "workflow",
+            "benchmark",
+            "--workflow",
+            str(workflow_path),
+            "--profile",
+            "base",
+            "--project",
+            "demo",
+            "--spec",
+            str(benchmark_spec),
+            "--config-root",
+            str(config_root),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--candidates-root",
+            str(tmp_path / "candidates"),
+            "--reports-root",
+            str(tmp_path / "reports"),
+            "--gate-policy",
+            "benchmark-pass",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["gate_result"]["status"] == "passed"
     assert captured["profile_name"] == "base"
-    assert captured["compiled_payload"]["tasks"][0]["task_id"] == "fetch_homepages"
+    assert captured["gate_policy_id"] == "benchmark-pass"
 
 
 def test_workflow_benchmark_infers_evaluator_packs_from_primitives(
