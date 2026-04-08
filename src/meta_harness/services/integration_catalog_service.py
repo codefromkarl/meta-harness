@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 from urllib import request
@@ -81,23 +82,76 @@ def _post_json(
     except URLError as exc:
         raise ConnectionError(str(exc.reason)) from exc
 
+
+def _retryable_status_codes(config: dict[str, Any]) -> set[int]:
+    configured = config.get("retry_status_codes")
+    if isinstance(configured, list) and configured:
+        return {
+            int(code)
+            for code in configured
+            if isinstance(code, (int, float, str)) and str(code).strip()
+        }
+    return {408, 429, 500, 502, 503, 504}
+
+
+def _post_json_with_retry(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    retry_limit = max(0, int(config.get("retry_limit", 0) or 0))
+    retry_backoff_sec = max(0.0, float(config.get("retry_backoff_sec", 0.0) or 0.0))
+    timeout_sec = float(config.get("timeout_sec", 5.0) or 5.0)
+    retryable_statuses = _retryable_status_codes(config)
+
+    attempt_count = 0
+    while True:
+        attempt_count += 1
+        try:
+            result = _post_json(
+                url=url,
+                payload=payload,
+                headers=headers,
+                timeout_sec=timeout_sec,
+            )
+        except ConnectionError:
+            if attempt_count > retry_limit:
+                raise
+            if retry_backoff_sec > 0:
+                time.sleep(retry_backoff_sec)
+            continue
+
+        status_code = int(result["status_code"])
+        if status_code in retryable_statuses and attempt_count <= retry_limit:
+            if retry_backoff_sec > 0:
+                time.sleep(retry_backoff_sec)
+            continue
+
+        return {
+            **result,
+            "attempt_count": attempt_count,
+        }
+
 def test_integration(config_root: Path, name: str) -> dict[str, Any]:
     config = load_integration_config(config_root, name)
     endpoint = str(config.get("healthcheck_endpoint") or config.get("endpoint") or "")
     if not endpoint:
         raise ValueError(f"integration '{name}' has no endpoint configured")
-    result = _post_json(
+    result = _post_json_with_retry(
         url=endpoint,
         payload={"type": "health_check", "service": "meta-harness", "integration": name},
         headers={
             str(key): str(value)
             for key, value in dict(config.get("headers") or {}).items()
         },
-        timeout_sec=float(config.get("timeout_sec", 5.0) or 5.0),
+        config=config,
     )
     return {
         "name": name,
         "status_code": result["status_code"],
+        "attempt_count": result.get("attempt_count", 1),
         "ok": 200 <= int(result["status_code"]) < 300,
         "response": result.get("body"),
     }
@@ -112,14 +166,14 @@ def export_payload_to_integration(
     endpoint = str(config.get("endpoint") or "")
     if not endpoint:
         raise ValueError(f"integration '{name}' has no endpoint configured")
-    result = _post_json(
+    result = _post_json_with_retry(
         url=endpoint,
         payload=payload,
         headers={
             str(key): str(value)
             for key, value in dict(config.get("headers") or {}).items()
         },
-        timeout_sec=float(config.get("timeout_sec", 5.0) or 5.0),
+        config=config,
     )
     return {
         "name": str(config.get("name", name)),
@@ -127,6 +181,6 @@ def export_payload_to_integration(
         "format": config.get("format"),
         "endpoint": endpoint,
         "status_code": result["status_code"],
+        "attempt_count": result.get("attempt_count", 1),
         "response": result.get("body"),
     }
-

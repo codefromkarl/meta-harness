@@ -86,9 +86,9 @@
 
 ### C1. 外部 Observability
 
-- [ ] OTLP 真正发送路径（当前已有 `otlp_http` 命名集成与最小 HTTP export path，缺少批量、重试、协议对齐与治理）
-- [ ] Phoenix SDK / API 接入（当前已有 `phoenix-json` export 与命名集成 HTTP export，仍缺产品化加固）
-- [ ] Langfuse SDK / API 接入（当前已有 `langfuse-json` export 与命名集成 HTTP export，仍缺产品化加固）
+- [ ] OTLP 真正发送路径（当前已有 `otlp_http` 命名集成、timeout/retry HTTP export path，仍缺批量、协议对齐与治理）
+- [ ] Phoenix SDK / API 接入（当前已有 `phoenix-json` export、命名集成 HTTP export 与基础 timeout/retry，仍缺产品化加固）
+- [ ] Langfuse SDK / API 接入（当前已有 `langfuse-json` export、命名集成 HTTP export 与基础 timeout/retry，仍缺产品化加固）
 - [x] integration health check
 
 ### C2. 服务化与产品面

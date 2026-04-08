@@ -5,6 +5,7 @@ from pathlib import Path
 
 import meta_harness.services.async_jobs as async_jobs_module
 import meta_harness.services.benchmark_service as benchmark_service_module
+import meta_harness.services.integration_catalog_service as integration_catalog_service_module
 import meta_harness.services.strategy_service as strategy_service_module
 import pytest
 from meta_harness.services.candidate_service import (
@@ -22,6 +23,7 @@ from meta_harness.services.benchmark_service import (
 )
 from meta_harness.services.dataset_service import extract_failure_dataset_to_path
 from meta_harness.services.export_service import export_run_trace_to_path
+from meta_harness.services.integration_catalog_service import export_payload_to_integration
 from meta_harness.services.job_service import (
     cancel_job_record,
     complete_job_record,
@@ -420,6 +422,43 @@ def test_export_service_writes_selected_trace_format(tmp_path: Path) -> None:
     assert payload["output_path"] == str(output_path)
     written = json.loads(output_path.read_text(encoding="utf-8"))
     assert written["project_name"] == "meta-harness/demo"
+
+
+def test_integration_catalog_service_retries_retryable_status_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_root = tmp_path / "configs"
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+            "retry_limit": 2,
+            "retry_backoff_sec": 0.0,
+        },
+    )
+
+    attempts: list[dict[str, object]] = []
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            return {"status_code": 503, "body": {"accepted": False}}
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_payload_to_integration(
+        config_root=config_root,
+        name="otlp",
+        payload={"run_id": "run123"},
+    )
+
+    assert payload["status_code"] == 200
+    assert payload["attempt_count"] == 2
+    assert payload["response"] == {"accepted": True}
+    assert len(attempts) == 2
 
 
 def test_catalog_service_builds_run_and_candidate_index_payloads(tmp_path: Path) -> None:
