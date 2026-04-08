@@ -273,6 +273,7 @@ reports/loops/<loop_id>/
     proposal_output.json
     selected_candidate.json
     benchmark_summary.json
+    validation_summary.json
     experience_summary.json
     next_round_context.json
     proposer_context/
@@ -284,6 +285,7 @@ reports/loops/<loop_id>/
 - `loop.json` 必须存在
 - `iteration_history.jsonl` 必须存在
 - `iterations/<iteration_id>/` 下的 7 个 JSON artifact 必须齐全
+- `validation_summary.json` 作为 lightweight validation gate 的独立摘要存在
 - `iterations/<iteration_id>/proposer_context/manifest.json` 必须存在
 - `loop.json.iteration_count` 应与 `iteration_history.jsonl` 的记录数一致
 
@@ -394,6 +396,7 @@ reports/loops/<loop_id>/
       proposal_output.json
       selected_candidate.json
       benchmark_summary.json
+      validation_summary.json
       proposer_context/
         manifest.json
       next_round_context.json
@@ -405,6 +408,7 @@ reports/loops/<loop_id>/
 - `iteration_history.jsonl` 必须存在
 - 每轮迭代目录必须存在 `iteration.json`
 - `proposal_input.json`、`proposal_output.json`、`selected_candidate.json`、`benchmark_summary.json`、`next_round_context.json` 应作为最小闭环工件输出
+- `validation_summary.json` 应作为 validation gate 的独立工件输出
 - `proposer_context/manifest.json` 必须存在，用于给 proposer 暴露经过筛选的历史文件系统视图
 - 若 `benchmark_summary.json.evaluation.benchmark_skipped=true` 或 `executor.status=validation_failed`，则必须同时保留 `evaluation.validation`
 

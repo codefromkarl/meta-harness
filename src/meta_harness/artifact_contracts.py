@@ -169,6 +169,7 @@ def _validate_loop(path: Path) -> dict[str, Any]:
         "proposal_output.json",
         "selected_candidate.json",
         "benchmark_summary.json",
+        "validation_summary.json",
         "experience_summary.json",
         "next_round_context.json",
         "proposer_context/manifest.json",
