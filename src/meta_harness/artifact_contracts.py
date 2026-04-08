@@ -215,6 +215,14 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                             result["errors"].append(
                                 f"iterations/{iteration_id}/benchmark_summary.json missing validation payload"
                             )
+        validation_summary_path = iteration_dir / "validation_summary.json"
+        validation_summary = None
+        if validation_summary_path.exists():
+            validation_summary = _load_json_object(
+                validation_summary_path,
+                result,
+                name=f"iterations/{iteration_id}/validation_summary.json",
+            )
         next_round_context_path = iteration_dir / "next_round_context.json"
         if next_round_context_path.exists():
             next_round_context = _load_json_object(
@@ -223,13 +231,32 @@ def _validate_loop(path: Path) -> dict[str, Any]:
                 name=f"iterations/{iteration_id}/next_round_context.json",
             )
             if next_round_context is not None:
-                validation_summary_path = iteration_dir / "validation_summary.json"
                 if validation_summary_path.exists() and not next_round_context.get(
                     "validation_summary_path"
                 ):
                     result["errors"].append(
                         f"iterations/{iteration_id}/next_round_context.json missing validation_summary_path"
                     )
+        if validation_summary is not None and benchmark_summary_path.exists():
+            benchmark_summary = _load_json_object(
+                benchmark_summary_path,
+                result,
+                name=f"iterations/{iteration_id}/benchmark_summary.json",
+            )
+            evaluation = (
+                benchmark_summary.get("evaluation")
+                if isinstance(benchmark_summary, dict)
+                else None
+            )
+            benchmark_validation = (
+                evaluation.get("validation")
+                if isinstance(evaluation, dict)
+                else None
+            )
+            if isinstance(benchmark_validation, dict) and benchmark_validation != validation_summary:
+                result["errors"].append(
+                    f"iterations/{iteration_id}/validation_summary.json does not match benchmark_summary.json evaluation.validation"
+                )
     result["iteration_ids"] = normalized_ids
     return result
 

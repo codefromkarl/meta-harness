@@ -833,3 +833,61 @@ def test_loop_contract_validator_requires_validation_summary_path_in_next_round_
         "next_round_context.json missing validation_summary_path" in error
         for error in result["errors"]
     )
+
+
+def test_loop_contract_validator_requires_validation_summary_to_match_benchmark_evaluation(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-validation-match")
+    iteration_dir = loop_dir / "iterations" / "loop-validation-match-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-validation-match",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "done",
+                "iterations": [{"iteration_id": "loop-validation-match-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-validation-match-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-validation-match-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {
+            "evaluation": {"validation": {"status": "passed", "reason": ""}}
+        },
+        "validation_summary.json": {"status": "failed", "reason": "mismatch"},
+        "experience_summary.json": {"iteration_id": "loop-validation-match-0001"},
+        "next_round_context.json": {
+            "experience_summary_path": "experience_summary.json",
+            "validation_summary_path": "validation_summary.json",
+        },
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "validation_summary.json does not match benchmark_summary.json evaluation.validation"
+        in error
+        for error in result["errors"]
+    )
