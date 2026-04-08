@@ -608,6 +608,11 @@ def test_artifact_contract_validator_accepts_real_loop_proposal_dataset_and_eval
         ),
         evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
         summary={"score": 0.8, "next_actions": ["promote candidate"]},
+        artifacts={
+            "proposer_context": str(
+                loop_dir / "iterations" / "loop-1-0001" / "proposer_context"
+            )
+        },
         proposal_evaluation={"selected": True, "proposal_rank": 1},
     )
     write_iteration_artifact(loop_dir, iteration)
@@ -990,6 +995,7 @@ def test_loop_contract_validator_accepts_absolute_validation_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": str(validation_summary_path.resolve()),
+            "artifacts": {"proposer_context": "proposer_context"},
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1043,6 +1049,7 @@ def test_loop_contract_validator_accepts_relative_validation_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
+            "artifacts": {"proposer_context": "proposer_context"},
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1150,6 +1157,7 @@ def test_loop_contract_validator_accepts_relative_experience_summary_path(
         "next_round_context.json": {
             "experience_summary_path": "experience_summary.json",
             "validation_summary_path": "validation_summary.json",
+            "artifacts": {"proposer_context": "proposer_context"},
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1202,6 +1210,7 @@ def test_loop_contract_validator_accepts_absolute_experience_summary_path(
         "next_round_context.json": {
             "experience_summary_path": str(experience_summary_path.resolve()),
             "validation_summary_path": "validation_summary.json",
+            "artifacts": {"proposer_context": "proposer_context"},
         },
     }.items():
         (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
@@ -1215,6 +1224,62 @@ def test_loop_contract_validator_accepts_absolute_experience_summary_path(
     )
 
     assert result["ok"] is True
+
+
+def test_loop_contract_validator_requires_preserved_proposer_context_link(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-proposer-artifacts")
+    iteration_dir = loop_dir / "iterations" / "loop-proposer-artifacts-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-proposer-artifacts",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "done",
+                "iterations": [{"iteration_id": "loop-proposer-artifacts-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-proposer-artifacts-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-proposer-artifacts-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {"evaluation": {"validation": {"status": "passed"}}},
+        "validation_summary.json": {"status": "passed"},
+        "experience_summary.json": {"iteration_id": "loop-proposer-artifacts-0001"},
+        "next_round_context.json": {
+            "experience_summary_path": "experience_summary.json",
+            "validation_summary_path": "validation_summary.json",
+            "artifacts": {},
+        },
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "next_round_context.json missing artifacts.proposer_context" in error
+        for error in result["errors"]
+    )
 
 
 def test_loop_contract_validator_requires_benchmark_validation_when_validation_summary_is_non_empty(
