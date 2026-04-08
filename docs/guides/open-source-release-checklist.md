@@ -10,6 +10,11 @@
 - 再保证**论文思想与工程实现之间的映射清晰**
 - 最后再扩展产品面、外部集成和 UI
 
+状态说明：
+
+- `[x]` 表示该项已完成并在仓库中有对应实现或公开资产。
+- `[ ]` 表示该项仍未完成，或仅有最小雏形，括号内会补充当前进度。
+
 ## A. 首发前必须完成
 
 ### A1. 定位与文档
@@ -75,20 +80,20 @@
 - [x] 支持 `proposal-only` 与后续 materialization
 - [x] 增加 proposal list / query / inspect 能力
 - [x] 增加多 proposer / proposer registry
-- [ ] 增加 proposal ranking / evaluation
+- [x] 增加 proposal ranking / evaluation
 
 ## C. 适合作为论文工程增强部分
 
 ### C1. 外部 Observability
 
-- [ ] OTLP 真正发送路径
-- [ ] Phoenix SDK / API 接入
-- [ ] Langfuse SDK / API 接入
+- [ ] OTLP 真正发送路径（当前已有 `otlp_http` 命名集成与最小 HTTP export path，缺少批量、重试、协议对齐与治理）
+- [ ] Phoenix SDK / API 接入（当前已有 `phoenix-json` export 与命名集成 HTTP export，仍缺产品化加固）
+- [ ] Langfuse SDK / API 接入（当前已有 `langfuse-json` export 与命名集成 HTTP export，仍缺产品化加固）
 - [x] integration health check
 
 ### C2. 服务化与产品面
 
-- [ ] 完整 API 产品面
+- [ ] 完整 API 产品面（当前已具备 runs / datasets / candidates / integrations / loop 等基础 API 与 service surface，但离完整产品面仍有距离）
 - [ ] token auth / workspace 权限（当前仅有 bearer token，尚无 workspace 权限模型）
 - [ ] job queue / worker（当前为单机 inline job + retry surface）
 - [ ] DB projection 与 migration
@@ -98,9 +103,10 @@
 
 - [x] artifact-first 的 `candidate -> run -> score -> benchmark -> propose -> shadow-run` 闭环
 - [x] versioned dataset artifact、annotation ingestion、split derivation、dataset promotion
-- [x] proposal artifact 生命周期与 delayed materialization
+- [x] proposal artifact 生命周期、ranking / evaluation 与 delayed materialization
 - [x] benchmark / promotion gate artifact 雏形
 - [x] white-box audit 最小能力与 runtime profiling
+- [x] FastAPI surface、service layer 与 inline async job facade
 
 ## E. 建议发布节奏
 
@@ -120,7 +126,7 @@
 - TraceEventV2
 - unified EvaluatorRun
 - gate result artifact
-- proposal registry
+- proposal registry 与 ranking / evaluation
 
 ### Release 0.3
 

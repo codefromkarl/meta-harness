@@ -9,6 +9,6 @@ runs/
 candidates/
 reports/
 proposals/
-archive/
+archive/cleanup_logs/
 
 .omc/

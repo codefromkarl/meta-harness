@@ -47,13 +47,11 @@
 - `optimize loop` 的 CLI / service 接入
 - integration harness outer-loop 对统一 loop 的局部复用
 
-当前主要差距：
+对账结论：
 
-- `experience assembler` 仍偏浅，历史经验筛选和摘要不足
-- proposal 生成已抽象，但 proposal ranking / evaluation 尚未并入统一主流程
-- task plugin 仍更接近轻量包装，而非强语义适配层
-- integration outer-loop 仍保留较多场景专用编排
-- “经验写回”尚未形成稳定的下一轮输入飞轮
+- 本计划定义的论文架构收口范围已完成，`Phase 1` 到 `Phase 5` 的目标能力均已在仓库中落地。
+- `experience assembler`、proposal ranking / evaluation、task plugin 语义化、integration outer-loop 收口、experience write-back 与 contract / demo / smoke 收尾均已有实现与自动化测试覆盖。
+- 当前剩余工作不再属于本计划阻塞项，主要转入平台产品化路线：evaluator 自身 tracing / profiling、更完整的 trace lineage 与多维评分、外部 transport 加固、对象存储 / 远程 artifact、auth / job / DB / UI 产品面。
 
 ## 4. 完成定义
 
@@ -329,8 +327,8 @@
 
 ### Task 5.1：增加 artifact contract validator
 
-- [ ] 提供面向真实 artifact 目录的 contract validator
-- [ ] 能检查 loop / proposal / dataset / evaluator 关键 artifact
+- [x] 提供面向真实 artifact 目录的 contract validator
+- [x] 能检查 loop / proposal / dataset / evaluator 关键 artifact
 
 目标文件：
 
@@ -349,8 +347,8 @@
 
 ### Task 5.2：补公开 benchmark snapshot
 
-- [ ] 选一条公开 demo 路径产出 benchmark 结果快照
-- [ ] 在文档中给出复现方式与预期摘要
+- [x] 选一条公开 demo 路径产出 benchmark 结果快照
+- [x] 在文档中给出复现方式与预期摘要
 
 目标文件：
 
@@ -364,9 +362,9 @@
 
 ### Task 5.3：增加开源 smoke 路径
 
-- [ ] 把 `demo_public`
-- [ ] `optimize propose / materialize`
-- [ ] `optimize loop` 最小路径纳入 smoke 验证
+- [x] 把 `demo_public`
+- [x] `optimize propose / materialize`
+- [x] `optimize loop` 最小路径纳入 smoke 验证
 
 目标文件：
 
@@ -382,9 +380,9 @@
 
 - 以 CI 配置中的 smoke 命令为准
 
-## 7. 建议执行批次
+## 7. 批次状态
 
-建议按以下批次推进，每批结束后回看并确认是否继续：
+本计划原始批次已全部完成，保留如下仅用于回溯交付边界：
 
 ### Batch A
 
@@ -424,10 +422,10 @@
 
 ## 9. 后续执行方式
 
-后续实现会话按以下方式进行：
+本计划不再作为“待执行任务清单”，而是作为论文架构收口的完成记录。
 
-1. 读取本计划文档
-2. 优先执行当前批次的前 2 到 3 个任务
-3. 每批次完成后先汇报验证结果，再决定是否进入下一批
+后续实现会话默认切换到以下优先级：
 
-推荐从 `Batch A` 开始。
+1. trace / evaluator 治理收口：补 evaluator tracing / profiling、loop lineage、多维评分与自动 shadow validation。
+2. 真实外部集成加固：把 OTLP / Phoenix / Langfuse / 对象存储从最小 export path 推进到更稳的 transport 与治理能力。
+3. 平台产品化：继续推进 auth / job / DB projection / UI 等路线图事项。
