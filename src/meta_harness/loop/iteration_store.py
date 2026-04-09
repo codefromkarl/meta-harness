@@ -103,7 +103,10 @@ def write_iteration_artifact(loop_dir: Path, artifact: LoopIterationArtifact) ->
         json.dumps(
             {
                 "stop_decision": artifact.stop_decision.model_dump() if artifact.stop_decision else None,
-                "artifacts": artifact.artifacts,
+                "artifacts": {
+                    **(artifact.artifacts if isinstance(artifact.artifacts, dict) else {}),
+                    **{name: str(path) for name, path in paths.items()},
+                },
                 "experience_summary_path": str(paths["experience_summary_json"]),
                 "validation_summary_path": str(paths["validation_summary_json"]),
             },
@@ -112,6 +115,20 @@ def write_iteration_artifact(loop_dir: Path, artifact: LoopIterationArtifact) ->
         encoding="utf-8",
     )
     return paths
+
+
+def candidate_lineage_artifact_paths(paths: dict[str, Path]) -> list[str]:
+    return [
+        str(paths["iteration_json"]),
+        str(paths["proposal_input_json"]),
+        str(paths["proposal_output_json"]),
+        str(paths["selected_candidate_json"]),
+        str(paths["benchmark_summary_json"]),
+        str(paths["experience_summary_json"]),
+        str(paths["validation_summary_json"]),
+        str(paths["next_round_context_json"]),
+        str(paths["iteration_dir"] / "proposer_context"),
+    ]
 
 
 def append_iteration_history(loop_dir: Path, artifact: LoopIterationArtifact) -> Path:

@@ -31,6 +31,28 @@ def test_api_healthcheck() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_api_serves_dashboard_shell(tmp_path: Path) -> None:
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/dashboard",
+        params={
+            "config_root": str(tmp_path / "configs"),
+            "runs_root": str(tmp_path / "runs"),
+            "reports_root": str(tmp_path / "reports"),
+            "datasets_root": str(tmp_path / "datasets"),
+            "candidates_root": str(tmp_path / "candidates"),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Meta-Harness Dashboard" in response.text
+    assert '"runsRoot": "' + str(tmp_path / "runs") + '"' in response.text
+    assert '"benchmarks": "/dashboard/benchmarks"' in response.text
+    assert '"candidatesCurrent": "/candidates/current"' in response.text
+
+
 def test_api_lists_profiles_projects_runs_and_jobs(tmp_path: Path) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
@@ -1238,6 +1260,47 @@ def test_api_returns_current_candidates_and_champions(tmp_path: Path) -> None:
     assert champions.json()["items"] == {"base:demo": "cand123"}
 
 
+def test_api_current_candidates_projects_canonical_lineage(tmp_path: Path) -> None:
+    candidates_root = tmp_path / "candidates"
+    runs_root = tmp_path / "runs"
+    candidate_dir = candidates_root / "cand123"
+    candidate_dir.mkdir(parents=True)
+    write_json(
+        candidate_dir / "candidate.json",
+        {
+            "candidate_id": "cand123",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidate_dir / "effective_config.json", {"budget": {"max_turns": 12}})
+
+    client = TestClient(create_app())
+    current = client.get(
+        "/candidates/current",
+        params={"candidates_root": str(candidates_root), "runs_root": str(runs_root)},
+    )
+
+    assert current.status_code == 200
+    candidate = current.json()["candidates"][0]
+    assert candidate["lineage"] == {
+        "parent_candidate_id": None,
+        "proposal_id": "proposal-1",
+        "source_proposal_ids": ["proposal-1"],
+        "iteration_id": "iter-1",
+        "source_iteration_ids": ["iter-1"],
+        "source_run_ids": ["run-1"],
+        "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+    }
+
+
 def test_api_submits_optimize_propose_job(tmp_path: Path) -> None:
     config_root = tmp_path / "configs"
     runs_root = tmp_path / "runs"
@@ -1436,7 +1499,13 @@ def test_api_can_materialize_candidate_from_proposal_artifact(tmp_path: Path) ->
     assert propose.status_code == 200
     assert propose.json()["data"].get("candidate_id") is None
     assert materialize.status_code == 200
-    assert materialize.json()["data"]["candidate_id"]
+    candidate_id = materialize.json()["data"]["candidate_id"]
+    assert candidate_id
+    candidate_metadata = json.loads(
+        (candidates_root / candidate_id / "candidate.json").read_text(encoding="utf-8")
+    )
+    assert candidate_metadata["source_proposal_ids"] == [proposal_id]
+    assert candidate_metadata["source_run_ids"] == ["run-a"]
 
 
 def test_api_lists_and_loads_proposals(tmp_path: Path) -> None:
@@ -1566,6 +1635,11 @@ def test_api_contracts_validate_request_models() -> None:
         runs_root="runs",
         output_path="dataset.json",
     ).output_path == "dataset.json"
+    assert RunExportTraceRequest(
+        reports_root="reports",
+        runs_root="runs",
+        candidates_root="candidates",
+    ).candidates_root == "candidates"
     assert PromoteCandidateRequest(candidates_root="candidates").candidates_root == "candidates"
     assert OptimizeLoopRequest(
         reports_root="reports",

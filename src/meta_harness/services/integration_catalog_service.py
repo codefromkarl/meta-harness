@@ -7,6 +7,12 @@ from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
 
+from meta_harness.exporters import (
+    build_langfuse_api_request,
+    build_otlp_transport_request,
+    build_phoenix_api_request,
+)
+
 
 def _integrations_root(config_root: Path) -> Path:
     return config_root / "integrations"
@@ -127,14 +133,26 @@ def _classify_transport_result(
 
 def _post_json_with_retry(
     *,
-    url: str,
-    payload: dict[str, Any],
-    headers: dict[str, str],
+    transport_request: dict[str, Any],
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    retry_limit = max(0, int(config.get("retry_limit", 0) or 0))
-    retry_backoff_sec = max(0.0, float(config.get("retry_backoff_sec", 0.0) or 0.0))
-    timeout_sec = float(config.get("timeout_sec", 5.0) or 5.0)
+    retry_limit = max(
+        0,
+        int(transport_request.get("retry_limit", config.get("retry_limit", 0)) or 0),
+    )
+    retry_backoff_sec = max(
+        0.0,
+        float(
+            transport_request.get(
+                "retry_backoff_sec",
+                config.get("retry_backoff_sec", 0.0),
+            )
+            or 0.0
+        ),
+    )
+    timeout_sec = float(
+        transport_request.get("timeout_sec", config.get("timeout_sec", 5.0)) or 5.0
+    )
     retryable_statuses = _retryable_status_codes(config)
 
     attempt_count = 0
@@ -142,9 +160,16 @@ def _post_json_with_retry(
         attempt_count += 1
         try:
             result = _post_json(
-                url=url,
-                payload=payload,
-                headers=headers,
+                url=str(transport_request.get("endpoint") or ""),
+                payload=(
+                    transport_request.get("body")
+                    if isinstance(transport_request.get("body"), dict)
+                    else {}
+                ),
+                headers={
+                    str(key): str(value)
+                    for key, value in dict(transport_request.get("headers") or {}).items()
+                },
                 timeout_sec=timeout_sec,
             )
         except ConnectionError as exc:
@@ -170,18 +195,54 @@ def _post_json_with_retry(
             "attempt_count": attempt_count,
         }
 
+
+def _build_transport_request(
+    *,
+    config: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    kind = str(config.get("kind") or "").lower()
+    if kind == "otlp_http":
+        return build_otlp_transport_request(payload=payload, config=config)
+    if kind == "phoenix":
+        return build_phoenix_api_request(payload=payload, config=config)
+    if kind == "langfuse":
+        return build_langfuse_api_request(payload=payload, config=config)
+    return {
+        "kind": kind or "http_json",
+        "method": "POST",
+        "endpoint": str(config.get("endpoint") or ""),
+        "headers": {
+            "Content-Type": "application/json",
+            **{
+                str(key): str(value)
+                for key, value in dict(config.get("headers") or {}).items()
+            },
+        },
+        "timeout_sec": float(config.get("timeout_sec", 5.0) or 5.0),
+        "retry_limit": max(0, int(config.get("retry_limit", 0) or 0)),
+        "retry_backoff_sec": max(
+            0.0,
+            float(config.get("retry_backoff_sec", 0.0) or 0.0),
+        ),
+        "body": payload,
+    }
+
 def test_integration(config_root: Path, name: str) -> dict[str, Any]:
     config = load_integration_config(config_root, name)
     endpoint = str(config.get("healthcheck_endpoint") or config.get("endpoint") or "")
     if not endpoint:
         raise ValueError(f"integration '{name}' has no endpoint configured")
-    result = _post_json_with_retry(
-        url=endpoint,
-        payload={"type": "health_check", "service": "meta-harness", "integration": name},
-        headers={
-            str(key): str(value)
-            for key, value in dict(config.get("headers") or {}).items()
+    transport_request = _build_transport_request(
+        config={**config, "kind": "http_json", "endpoint": endpoint},
+        payload={
+            "type": "health_check",
+            "service": "meta-harness",
+            "integration": name,
         },
+    )
+    result = _post_json_with_retry(
+        transport_request=transport_request,
         config=config,
     )
     return {
@@ -209,20 +270,16 @@ def export_payload_to_integration(
     endpoint = str(config.get("endpoint") or "")
     if not endpoint:
         raise ValueError(f"integration '{name}' has no endpoint configured")
+    transport_request = _build_transport_request(config=config, payload=payload)
     result = _post_json_with_retry(
-        url=endpoint,
-        payload=payload,
-        headers={
-            str(key): str(value)
-            for key, value in dict(config.get("headers") or {}).items()
-        },
+        transport_request=transport_request,
         config=config,
     )
     return {
         "name": str(config.get("name", name)),
         "kind": config.get("kind"),
         "format": config.get("format"),
-        "endpoint": endpoint,
+        "endpoint": str(transport_request.get("endpoint") or endpoint),
         "status_code": result["status_code"],
         "attempt_count": result.get("attempt_count", 1),
         **_classify_transport_result(
@@ -234,4 +291,13 @@ def export_payload_to_integration(
             error=result.get("error"),
         ),
         "response": result.get("body"),
+        "phoenix_api_request": (
+            transport_request if str(config.get("kind") or "").lower() == "phoenix" else None
+        ),
+        "langfuse_api_request": (
+            transport_request if str(config.get("kind") or "").lower() == "langfuse" else None
+        ),
+        "otlp_transport_request": (
+            transport_request if str(config.get("kind") or "").lower() == "otlp_http" else None
+        ),
     }

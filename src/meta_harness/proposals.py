@@ -90,6 +90,8 @@ def materialize_candidate_from_proposal(
     proposal_id: str,
     candidates_root: Path,
     config_root: Path,
+    iteration_id: str | None = None,
+    source_artifacts: list[str] | None = None,
 ) -> dict[str, Any]:
     proposal_record = load_proposal_record(proposals_root, proposal_id)
     proposal_dir = Path(str(proposal_record["proposal_dir"]))
@@ -108,6 +110,18 @@ def materialize_candidate_from_proposal(
         config_patch=proposal_record.get("config_patch"),
         code_patch_content=code_patch_content,
         notes=str(proposal_record.get("notes", "proposal materialization")),
+        proposal_id=proposal_id,
+        iteration_id=iteration_id,
+        source_run_ids=[
+            str(item)
+            for item in (proposal_record.get("source_run_ids") or [])
+            if str(item)
+        ],
+        source_artifacts=[
+            str(proposal_dir / "proposal.json"),
+            str(proposal_dir / "proposal_evaluation.json"),
+            *(source_artifacts or []),
+        ],
         proposal=proposal_payload,
         reuse_existing=True,
     )

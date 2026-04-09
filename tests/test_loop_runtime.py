@@ -5,6 +5,7 @@ from pathlib import Path
 
 from meta_harness.loop.iteration_store import (
     append_iteration_history,
+    candidate_lineage_artifact_paths,
     loop_root_path,
     write_iteration_artifact,
     write_loop_summary,
@@ -127,6 +128,7 @@ def test_select_best_result_supports_best_by_stability() -> None:
 
     assert selection.candidate_id == "cand-steady"
     assert selection.run_id == "run-steady"
+    assert "selection_policy=best_by_stability" in selection.selection_rationale
 
 
 def test_select_best_result_supports_baseline_guardrail() -> None:
@@ -160,6 +162,7 @@ def test_select_best_result_supports_baseline_guardrail() -> None:
 
     assert selection.candidate_id == "cand-baseline"
     assert selection.variant_name == "baseline"
+    assert "baseline_guardrail=retained_reference" in selection.selection_rationale
 
 
 def test_select_best_result_supports_multi_objective_rank() -> None:
@@ -194,6 +197,56 @@ def test_select_best_result_supports_multi_objective_rank() -> None:
 
     assert selection.candidate_id == "cand-balanced"
     assert selection.variant_name == "balanced"
+    assert "pareto_frontier=selected" in selection.selection_rationale
+    assert any(
+        entry.startswith("bottleneck=") for entry in selection.selection_rationale
+    )
+
+
+def test_execute_evaluation_plan_applies_shadow_validation_policy(
+    tmp_path: Path,
+) -> None:
+    from meta_harness.loop.search_loop import execute_evaluation_plan
+
+    def fail_if_shadow_run_called(**_: object) -> str:
+        raise AssertionError("shadow run should be skipped on failed validation")
+
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo",
+        project_name="demo",
+        task_set_path=tmp_path / "task-set.json",
+        reports_root=tmp_path / "reports",
+        evaluation_mode="shadow-run",
+    )
+
+    result = execute_evaluation_plan(
+        request=request,
+        evaluation_plan={"kind": "shadow-run"},
+        benchmark_fn=lambda **_: {},
+        shadow_run_fn=fail_if_shadow_run_called,
+        candidate_id="cand-shadow",
+        effective_config={
+            "evaluation": {
+                "shadow_validation_policy": {
+                    "enabled": True,
+                    "failure_behavior": "fail_evaluation",
+                }
+            }
+        },
+        validation_fn=lambda **_: {
+            "status": "failed",
+            "reason": "smoke import failed",
+            "validation_artifact": {"kind": "lightweight", "status": "failed"},
+        },
+    )
+
+    assert result["executor"]["status"] == "validation_failed"
+    assert result["shadow_validation_policy"]["trigger"] == "loop_shadow_run"
+    assert result["shadow_validation_policy"]["failure_behavior"] == "fail_evaluation"
+    assert result["validation"]["reason"] == "smoke import failed"
 
 
 def test_decide_stop_supports_instability_and_regression() -> None:
@@ -634,12 +687,65 @@ def test_run_search_loop_writes_next_round_experience_summary_and_plugin_overrid
     assert next_round_context["artifacts"]["selected_candidate_json"] == str(
         loop_dir / "iterations" / f"{summary.loop_id}-0001" / "selected_candidate.json"
     )
+    assert next_round_context["artifacts"]["proposal_output_json"] == str(
+        loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposal_output.json"
+    )
     assert next_round_context["artifacts"]["experience_summary_json"] == str(
         experience_summary_path
     )
     assert next_round_context["artifacts"]["validation_summary_json"] == str(
         validation_summary_path
     )
+    selected_candidate = json.loads(
+        (
+            loop_dir / "iterations" / f"{summary.loop_id}-0001" / "selected_candidate.json"
+        ).read_text(encoding="utf-8")
+    )
+    candidate_metadata = json.loads(
+        Path(str(selected_candidate["candidate_path"]))
+        .joinpath("candidate.json")
+        .read_text(encoding="utf-8")
+    )
+    assert "proposal_id" in candidate_metadata
+    assert candidate_metadata["source_proposal_ids"] == []
+    assert candidate_metadata["iteration_id"] == f"{summary.loop_id}-0001"
+    assert candidate_metadata["source_iteration_ids"] == [f"{summary.loop_id}-0001"]
+    assert candidate_metadata["source_run_ids"] == ["run-new"]
+    assert candidate_metadata["source_artifacts"]
+    assert str(loop_dir / "iterations" / f"{summary.loop_id}-0001" / "iteration.json") in candidate_metadata["source_artifacts"]
+    assert str(loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposal_input.json") in candidate_metadata["source_artifacts"]
+    assert str(loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposal_output.json") in candidate_metadata["source_artifacts"]
+    assert str(loop_dir / "iterations" / f"{summary.loop_id}-0001" / "next_round_context.json") in candidate_metadata["source_artifacts"]
+    assert str(loop_dir / "iterations" / f"{summary.loop_id}-0001" / "proposer_context") in candidate_metadata["source_artifacts"]
+
+
+def test_candidate_lineage_artifact_paths_returns_expected_iteration_artifacts(tmp_path: Path) -> None:
+    iteration_dir = tmp_path / "reports" / "loops" / "loop-1" / "iterations" / "loop-1-0001"
+    paths = {
+        "iteration_dir": iteration_dir,
+        "iteration_json": iteration_dir / "iteration.json",
+        "proposal_input_json": iteration_dir / "proposal_input.json",
+        "proposal_output_json": iteration_dir / "proposal_output.json",
+        "selected_candidate_json": iteration_dir / "selected_candidate.json",
+        "benchmark_summary_json": iteration_dir / "benchmark_summary.json",
+        "validation_summary_json": iteration_dir / "validation_summary.json",
+        "experience_summary_json": iteration_dir / "experience_summary.json",
+        "next_round_context_json": iteration_dir / "next_round_context.json",
+    }
+
+    artifacts = candidate_lineage_artifact_paths(paths)
+
+    assert artifacts == [
+        str(iteration_dir / "iteration.json"),
+        str(iteration_dir / "proposal_input.json"),
+        str(iteration_dir / "proposal_output.json"),
+        str(iteration_dir / "selected_candidate.json"),
+        str(iteration_dir / "benchmark_summary.json"),
+        str(iteration_dir / "experience_summary.json"),
+        str(iteration_dir / "validation_summary.json"),
+        str(iteration_dir / "next_round_context.json"),
+        str(iteration_dir / "proposer_context"),
+    ]
 
 
 def test_run_search_loop_writes_proposer_context_bundle_and_passes_paths(

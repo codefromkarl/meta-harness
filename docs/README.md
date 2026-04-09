@@ -9,19 +9,21 @@
 - [Platform Design](./architecture/platform-design.md)
 - [Data Model v1](./architecture/data-model-v1.md)
 - [API Surface v1](./architecture/api-surface-v1.md)
+- [Actual Next Steps](./architecture/actual-next-steps.md)
 - [Search Loop Blueprint](./architecture/search-loop-blueprint.md)
 - [Paper Architecture Execution Plan](./architecture/paper-architecture-execution-plan.md)
 
 ### Reference
 
 - [Artifact Contracts](./reference/artifact-contracts.md)
-- [Benchmark Spec v2](./reference/benchmark-spec-v2.md)
 - [Gate Policy v1](./reference/gate-policy-v1.md)
+- [Benchmark Spec v2](./reference/benchmark-spec-v2.md)
 
 ### Guides
 
 - [Reproducibility](./guides/reproducibility.md)
 - [Open-Source Release Checklist](./guides/open-source-release-checklist.md)
+- [Release Materials Pack](./guides/release-materials-pack.md)
 
 ### Research
 

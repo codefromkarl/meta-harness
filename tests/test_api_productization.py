@@ -5,6 +5,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 import meta_harness.services.integration_catalog_service as integration_catalog_service_module
@@ -82,6 +83,36 @@ def test_api_requires_bearer_token_when_configured(monkeypatch) -> None:
         headers={"Authorization": "Bearer secret-token"},
     )
     assert authorized.status_code == 200
+
+
+def test_api_enforces_workspace_auth_context_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("META_HARNESS_API_BEARER_TOKEN", "secret-token")
+    monkeypatch.setenv("META_HARNESS_API_WORKSPACE_ID", "workspace-demo")
+    app = create_app()
+
+    @app.get("/_workspace-auth")
+    def workspace_auth(request: Request) -> dict[str, object]:
+        return request.state.workspace_auth.to_dict()
+
+    client = TestClient(app)
+
+    missing_workspace = client.get(
+        "/_workspace-auth",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert missing_workspace.status_code == 403
+
+    authorized = client.get(
+        "/_workspace-auth",
+        headers={
+            "Authorization": "Bearer secret-token",
+            "X-Meta-Harness-Workspace": "workspace-demo",
+        },
+    )
+    assert authorized.status_code == 200
+    assert authorized.json()["workspace_id"] == "workspace-demo"
+    assert authorized.json()["principal"] == "api_token"
+    assert authorized.json()["token_authenticated"] is True
 
 
 def test_api_runs_and_trace_support_filters_and_pagination(tmp_path: Path) -> None:
@@ -398,13 +429,30 @@ def test_api_exports_trace_to_configured_integration(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     reports_root = tmp_path / "reports"
     config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
     run_dir = runs_root / "run123"
     task_dir = run_dir / "tasks" / "task-a"
     task_dir.mkdir(parents=True)
 
     write_json(
+        candidates_root / "cand-001" / "candidate.json",
+        {
+            "candidate_id": "cand-001",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidates_root / "cand-001" / "effective_config.json", {"budget": {"max_turns": 12}})
+    write_json(
         run_dir / "run_metadata.json",
-        {"run_id": "run123", "profile": "base", "project": "demo"},
+        {"run_id": "run123", "profile": "base", "project": "demo", "candidate_id": "cand-001"},
     )
     write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
     (task_dir / "steps.jsonl").write_text(
@@ -1100,7 +1148,9 @@ def test_api_can_export_run_directly_via_vendor_integration_kind(tmp_path: Path)
         assert phoenix.json()["ok"] is True
         assert langfuse.json()["ok"] is True
         assert phoenix.json()["data"]["format"] == "phoenix-json"
+        assert phoenix.json()["data"]["integration"]["phoenix_api_request"]["project_name"] == "meta-harness/demo"
         assert langfuse.json()["data"]["format"] == "langfuse-json"
+        assert langfuse.json()["data"]["integration"]["langfuse_api_request"]["trace_id"] == "run123"
 
         assert len(server.requests) == 2
         phoenix_request = server.requests[0]
@@ -1119,13 +1169,30 @@ def test_api_persists_direct_integration_export_artifact_when_reports_root_given
     runs_root = tmp_path / "runs"
     reports_root = tmp_path / "reports"
     config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
     run_dir = runs_root / "run123"
     task_dir = run_dir / "tasks" / "task-a"
     task_dir.mkdir(parents=True)
 
     write_json(
+        candidates_root / "cand-001" / "candidate.json",
+        {
+            "candidate_id": "cand-001",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidates_root / "cand-001" / "effective_config.json", {"budget": {"max_turns": 12}})
+    write_json(
         run_dir / "run_metadata.json",
-        {"run_id": "run123", "profile": "base", "project": "demo"},
+        {"run_id": "run123", "profile": "base", "project": "demo", "candidate_id": "cand-001"},
     )
     write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
     (task_dir / "steps.jsonl").write_text(
@@ -1162,6 +1229,7 @@ def test_api_persists_direct_integration_export_artifact_when_reports_root_given
         params={
             "config_root": str(config_root),
             "runs_root": str(runs_root),
+            "candidates_root": str(candidates_root),
             "reports_root": str(reports_root),
         },
     )
@@ -1170,4 +1238,7 @@ def test_api_persists_direct_integration_export_artifact_when_reports_root_given
     payload = response.json()
     assert payload["ok"] is True
     assert payload["data"]["artifact_path"] == "reports/exports/integrations/otlp/run123.json"
-    assert (tmp_path / payload["data"]["artifact_path"]).exists()
+    artifact_path = tmp_path / payload["data"]["artifact_path"]
+    assert artifact_path.exists()
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["candidate_lineage"]["proposal_id"] == "proposal-1"

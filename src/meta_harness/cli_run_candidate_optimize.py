@@ -366,10 +366,14 @@ def run_export_trace(
         help="Export format: otel-json|phoenix-json|langfuse-json",
     ),
     runs_root: Path = typer.Option(Path("runs"), exists=False, file_okay=False),
+    candidates_root: Path | None = typer.Option(
+        None, exists=False, file_okay=False, help="Candidates root for candidate lineage projection"
+    ),
 ) -> None:
     try:
         payload = export_run_trace_to_path(
             runs_root=runs_root,
+            candidates_root=candidates_root,
             run_id=run_id,
             output_path=output,
             export_format=format,

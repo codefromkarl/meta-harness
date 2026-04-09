@@ -12,3 +12,11 @@ proposals/
 archive/cleanup_logs/
 
 .omc/
+
+/autoresearch-*
+/research-results*.tsv
+/benchmark/
+/propose/
+/run/
+/score/
+/shadow-run/

@@ -1,82 +1,102 @@
 <div align="center">
   <h1>Meta-Harness</h1>
-  <p>A reusable platform for continuously experimenting, comparing, and improving AI workflows. It records every attempt, automatically compares alternatives, and helps you find better execution strategies faster.</p>
+  <p>An artifact-first control-plane kernel for optimizing AI workflows.</p>
   <p>
     <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&amp;logoColor=white">
     <img alt="Pytest" src="https://img.shields.io/badge/testing-pytest-0A9EDC?logo=pytest&amp;logoColor=white">
     <img alt="CLI" src="https://img.shields.io/badge/CLI-Typer-5B5EA6">
     <img alt="API" src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&amp;logoColor=white">
+    <img alt="License" src="https://img.shields.io/badge/license-MIT-0F172A">
     <img alt="Status" src="https://img.shields.io/badge/status-experimental-F59E0B">
   </p>
   <p><a href="./README.md">中文</a></p>
-  <p><a href="#quick-start">Quick Start</a> · <a href="./docs/research/paper-mapping.md">Paper Mapping</a> · <a href="./docs/guides/reproducibility.md">Reproducibility</a> · <a href="./docs/guides/open-source-release-checklist.md">Release Checklist</a></p>
+  <p><a href="#30-second-demo">30-Second Demo</a> · <a href="#quick-start">Quick Start</a> · <a href="./docs/research/paper-mapping.md">Paper Mapping</a> · <a href="./docs/guides/reproducibility.md">Reproducibility</a> · <a href="./docs/guides/open-source-release-checklist.md">Release Checklist</a></p>
 </div>
-
-## Research Background
-
-This project originates from the paper [Meta-Harness: End-to-End Optimization of Model Harnesses](https://arxiv.org/abs/2603.28052). The core insight is that the effectiveness of large language model systems depends not only on the model itself, but also on the surrounding code that organizes information, retrieves context, formats prompts, and orchestrates execution — the harness. Rather than optimizing only prompts or single-turn outputs, the paper proposes treating the harness code itself as an optimization target, leveraging historical candidates, scores, and execution traces for outer-loop search.
-
-This repository continues that direction, providing a reusable platform entry point for experiment orchestration, candidate management, benchmarking, tracing, and closed-loop optimization.
 
 ## What It Is
 
-Meta-Harness is neither a one-off script nor a single-project temporary tool. It is a platform for continuously experimenting, comparing, and improving AI workflows.
+Meta-Harness is not a one-off script and not a temporary tool for a single repository. It is an artifact-first platform kernel for AI workflow optimization: candidate, run, score, benchmark, proposal, shadow-run, and trace export all live in the same replayable, comparable, archivable system.
 
-Its core value lies in bringing different execution variants and their results under a unified management framework — giving experiment records, alternative comparisons, and iterative optimization a single entry point with clear context, rather than being scattered across ad-hoc scripts, command logs, and individual experience.
+The repository is an engineering implementation of the paper [Meta-Harness: End-to-End Optimization of Model Harnesses](https://arxiv.org/abs/2603.28052). It keeps the paper's outer-loop optimization idea intact, while adding contracts, export surfaces, lightweight product scaffolding, and governance semantics so the result is more than a collection of experiment scripts.
 
-For AI automation, agent workflows, task execution systems, and other processes that require continuous tuning, this project provides a more systematic and reusable organizational approach.
+## Why It Is Worth Looking At
 
-## Highlights
+- It turns workflow optimization from ad hoc judgment into a replayable artifact flow.
+- It already ships a real closed loop: `candidate -> run -> score -> benchmark -> propose -> shadow-run`.
+- It is no longer CLI-only scaffolding: the repo now includes a FastAPI surface, product-facing request envelopes, a minimal queued-worker path, a SQLite projection store, and an embedded dashboard shell.
 
-- 🔥 **End-to-End Optimization Loop**: Organizes candidate, run, score, observe, benchmark, propose, and shadow-run into a continuous workflow, forming a stable closed loop across execution, evaluation, and iteration.
-- 🚀 **Candidate-First Optimization**: Unifies configuration variants and code patches into a single candidate system, filtering better approaches through execution and evaluation results with a consistent comparison basis.
-- 🌟 **Multi-Layer Workflow Management**: Supports platform defaults, workflow profiles, project overlays, and candidate patches simultaneously, enabling progressive convergence from generic capabilities to specific tasks.
-- 🧠 **AI-Driven Optimization Proposals**: Generates next-round candidates based on historical execution results, failure traces, and proposal workflows, gradually shifting optimization from manual curation to automated progression.
-- 🧩 **Modular Capability Units**: Benchmark, strategy cards, task sets, dataset extraction, and trace export can be composed independently, making it easy to extend and reuse across scenarios.
-- 📊 **Benchmark-Driven Iteration**: Compares quality, stability, and cost across variants through repeatable benchmarks and suites, giving the optimization process clear quantitative grounding.
-- 🌐 **Integration-Ready**: CLI-driven as the primary interface, with a service layer and API surface retained for future integration with automation systems, evaluation pipelines, and control planes.
+## Who It Is For
 
-## Problems It Solves
+- Teams continuously tuning AI assistants, agents, or task workflows
+- Research-engineering readers who want experiment records, comparisons, and iteration inside one traceable system
+- Developers who want to extend the paper's ideas into a reusable platform kernel instead of rebuilding control-plane basics from scratch
 
-- Brings every experiment and execution result into traceable records, preventing optimization from relying on human memory
-- Integrates execution, comparison, optimization, and archival into a single flow, reducing the management overhead of switching between multiple scripts and directories
-- Enables different approaches to be re-executed and directly compared, grounding optimization decisions in verifiable results
-- Maintains stable iteration capacity as workflow complexity grows, rather than repeatedly re-organizing the optimization process from scratch
+## 30-Second Demo
 
-## What You Can Do With It
+If you only want to answer “does this repository actually run a full loop?”, use the public demo:
 
-- **Continuously optimize an AI assistant or agent**: When the same task admits multiple execution strategies, repeatedly experiment, compare results, and converge on a more stable and efficient approach.
-- **Manage and compare different versions of AI workflows**: Whether changes come from prompts, process steps, or code logic, validate differences within a unified flow rather than relying on subjective judgment.
-- **Establish reviewable experiment records for a team**: Preserve each attempt, result, and improvement direction, reducing the scattering of experiments across scripts, directories, and individual memory.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
 
-The repository already ships with runnable profiles, project overlays, task sets, benchmark specs, and strategy cards that serve as a practical foundation for these scenarios.
+bash scripts/demo_public_flow.sh .demo-output
+```
 
-## Stability
+That single script walks through:
 
-Currently recommended as stable:
+- `run init`
+- `run execute`
+- `optimize propose --proposal-only`
+- `optimize materialize-proposal`
+- `dataset build-task-set`
+- `dataset ingest-annotations`
+- `dataset derive-split`
+- `dataset promote`
+- `run export-trace`
+- `optimize loop`
+- `observe benchmark`
+- `artifact contract validator`
 
-- CLI-driven `candidate → run → score → benchmark → propose → shadow-run` artifact loop
+Artifacts are written to:
+
+- `.demo-output/runs`
+- `.demo-output/candidates`
+- `.demo-output/proposals`
+- `.demo-output/datasets`
+- `.demo-output/reports/benchmarks/demo_public_budget_headroom.json`
+- `.demo-output/reports/loops/<loop_id>/`
+- `.demo-output/exports/<run_id>.otel.json`
+
+The script also prints `run_id`, `proposal_id`, `materialized_candidate_id`, `loop_id`, and key artifact paths for quick validation. For the longer walkthrough, see [Reproducibility](./docs/guides/reproducibility.md).
+
+## Core Capabilities
+
+- Closed-loop optimization with a shared artifact contract
+- Candidate management for both config patches and code patches
+- Dataset lifecycle covering build, annotation ingestion, derive-split, and promotion
+- OTLP / Phoenix / Langfuse request envelopes with integration export artifacts
+- `lineage-first` governance semantics for candidate and loop artifacts
+- Product skeletons for workspace auth context, queued worker path, SQLite projection store, and embedded dashboard shell
+
+## Current Boundaries
+
+Recommended as stable today:
+
+- CLI-driven `candidate -> run -> score -> benchmark -> propose -> shadow-run` artifact flow
 - Unified `mh optimize loop` offline search loop and `reports/loops/` iteration artifacts
 - Dataset build / ingest / derive-split / promote path
-- `demo_public` public demo and accompanying documentation
-- File-system-as-truth artifact organization for runs, candidates, proposals, and reports
+- `demo_public` and its supporting documentation
+- File-system-as-truth organization for runs, candidates, proposals, and reports
 
-Currently considered experimental:
+Still experimental:
 
-- HTTP API and async job surfaces are still converging
-- Integration demos like `demo_openclaw` that depend on external runtimes
-- White-box audit, gate policy, and external observability governance extensions
-- Direct model-access proposers, more complete proposal registry, trace grading, and service consolidation
-
-## Terminology
-
-- `profile`: Default execution configuration for a category of workflows
-- `project`: Lightweight override layer targeting a specific repository or scenario
-- `candidate`: An executable harness variant, which may include config patches or code patches
-- `proposal`: A next-round candidate suggestion that is not yet or just materialized
-- `benchmark variant`: A single variant participating in a benchmark comparison
-- `promotion`: The action of marking a dataset or candidate as higher priority / default
-- `champion`: The candidate currently promoted as the default recommendation
+- Protocol-grade OTLP transport
+- Official Phoenix / Langfuse SDK or hosted API integrations
+- Multi-workspace and role-based authorization
+- Real background queue scheduling, lease, and recovery
+- Projection-store integration into the main query path
+- Deeper lineage / trace / export drill-down inside the dashboard
 
 ## Architecture
 
@@ -118,7 +138,7 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 ```
 
-View CLI commands:
+View the CLI:
 
 ```bash
 mh --help
@@ -128,48 +148,41 @@ If you prefer not to install the script entry point:
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli --help
-```
-
-Minimal first steps:
-
-```bash
 PYTHONPATH=src python -m meta_harness.cli profile list
-
-PYTHONPATH=src python -m meta_harness.cli --help
 ```
-
-Next, choose a set of bundled assets from `configs/profiles/`, `configs/projects/`, and `task_sets/` to initialize and execute your first run.
 
 ## Documentation
 
-For going deeper, the recommended reading order:
+Recommended reading order:
 
 1. [Platform Design](./docs/architecture/platform-design.md)
 2. [Data Model v1](./docs/architecture/data-model-v1.md)
 3. [API Surface v1](./docs/architecture/api-surface-v1.md)
+4. [Actual Next Steps](./docs/architecture/actual-next-steps.md)
 
 Additional references:
 
 - [Documentation Index](./docs/README.md)
 - [Artifact Contracts](./docs/reference/artifact-contracts.md)
-- [Gate Policy v1](./docs/reference/gate-policy-v1.md)
 - [Benchmark Spec v2](./docs/reference/benchmark-spec-v2.md)
-- [External Strategy Evaluation](./docs/research/external-strategy-evaluation.md)
+- [Gate Policy v1](./docs/reference/gate-policy-v1.md)
 - [Paper Mapping](./docs/research/paper-mapping.md)
+- [External Strategy Evaluation](./docs/research/external-strategy-evaluation.md)
 - [Reproducibility Guide](./docs/guides/reproducibility.md)
 - [Open-Source Release Checklist](./docs/guides/open-source-release-checklist.md)
+- [Release Materials Pack](./docs/guides/release-materials-pack.md)
 - [ADR Index](./docs/adr/README.md)
 
-## Links
+## Terminology
 
-- [linux.do](https://linux.do) — Developer Community
+- `profile`: default execution configuration for a class of workflows
+- `project`: lightweight override layer for a specific repository or scenario
+- `candidate`: an executable harness variant, including config or code patches
+- `proposal`: a suggested next-round candidate that is not yet or just materialized
+- `benchmark variant`: one variant participating in a benchmark comparison
+- `promotion`: the act of marking a dataset or candidate as higher-priority or default
+- `champion`: the currently promoted default candidate
 
 ## License
 
-This project is licensed under the [MIT License](./LICENSE).
-
-## Current Status
-
-- The primary execution interface is the CLI
-- HTTP API and service layer covering workflow, benchmark, integration, and optimize loop are provided
-- The unified search loop backbone is in place — see `docs/architecture/search-loop-blueprint.md`
+This project is released under the [MIT License](./LICENSE).

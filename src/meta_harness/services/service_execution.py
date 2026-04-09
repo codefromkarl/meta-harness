@@ -12,6 +12,30 @@ from meta_harness.services.job_service import (
 from meta_harness.services.service_response import error_response, success_response
 
 
+def create_queued_job(
+    *,
+    reports_root: Path,
+    job_type: str,
+    job_input: dict[str, Any] | None = None,
+    requested_by: str | None = None,
+    parent_job_id: str | None = None,
+    attempt: int = 1,
+) -> dict[str, Any]:
+    created = create_job_record(
+        reports_root=reports_root,
+        job_type=job_type,
+        execution_mode="queued",
+        job_input=job_input or {},
+        requested_by=requested_by,
+        parent_job_id=parent_job_id,
+        attempt=attempt,
+    )
+    return success_response(
+        {"queued": True},
+        job=created,
+    )
+
+
 def execute_inline_job(
     *,
     reports_root: Path,
@@ -26,6 +50,7 @@ def execute_inline_job(
     created = create_job_record(
         reports_root=reports_root,
         job_type=job_type,
+        execution_mode="inline",
         job_input=job_input or {},
         requested_by=requested_by,
         parent_job_id=parent_job_id,

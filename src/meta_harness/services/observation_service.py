@@ -11,6 +11,10 @@ from meta_harness.optimizer_generation import (
 )
 from meta_harness.optimizer_shadow import shadow_run_candidate
 from meta_harness.runtime_execution import execute_managed_run
+from meta_harness.services.gate_policy_service import (
+    resolve_shadow_validation_policy,
+    should_trigger_shadow_validation,
+)
 from meta_harness.services.optimize_service import propose_candidate_payload
 
 
@@ -112,6 +116,15 @@ def observe_once_payload(
         "triggered_optimization": False,
         "triggered_shadow_run": False,
     }
+    observation_shadow_validation_policy = resolve_shadow_validation_policy(
+        effective_config=effective_config,
+        trigger="observation_auto_propose",
+    )
+    result["shadow_validation_policy"] = {
+        **observation_shadow_validation_policy,
+        "eligible": False,
+        "triggered": False,
+    }
 
     needs_optimization, recommended_focus = _should_bootstrap_observation_optimization(
         {
@@ -195,14 +208,28 @@ def observe_once_payload(
             result["source_binding_id"] = source_binding_id
         if target_binding_id is not None:
             result["target_binding_id"] = target_binding_id
-            shadow_run_id = shadow_run_candidate(
-                candidates_root=candidates_root,
-                runs_root=runs_root,
-                candidate_id=candidate_id,
-                task_set_path=task_set_path,
-            )
-            result["triggered_shadow_run"] = True
-            result["shadow_run_id"] = shadow_run_id
+            result["shadow_validation_policy"] = {
+                **observation_shadow_validation_policy,
+                "eligible": True,
+                "triggered": False,
+            }
+            if should_trigger_shadow_validation(
+                observation_shadow_validation_policy,
+                trigger="observation_auto_propose",
+            ):
+                shadow_run_id = shadow_run_candidate(
+                    candidates_root=candidates_root,
+                    runs_root=runs_root,
+                    candidate_id=candidate_id,
+                    task_set_path=task_set_path,
+                )
+                result["triggered_shadow_run"] = True
+                result["shadow_run_id"] = shadow_run_id
+                result["shadow_validation_policy"] = {
+                    **observation_shadow_validation_policy,
+                    "eligible": True,
+                    "triggered": True,
+                }
 
     return result
 

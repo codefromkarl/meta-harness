@@ -1,12 +1,12 @@
 # Meta-Harness 复现指南
 
-更新时间：2026-04-08
+更新时间：2026-04-09
 
-本文档面向第一次接触仓库的读者，目标是：
+这份文档面向第一次接触仓库的读者。阅读顺序不是“把所有命令都看一遍”，而是：
 
-- 在本地跑通最小闭环
-- 理解关键 artifact 会写到哪里
-- 能复现 dataset / benchmark / proposal 三条主线
+1. 先跑通一条最短闭环
+2. 看清楚关键 artifact 会落到哪里
+3. 再按 dataset / benchmark / proposal 三条主线拆开复现
 
 ## 1. 环境
 
@@ -28,24 +28,15 @@ pip install -e '.[dev]'
 PYTHONPATH=src python -m meta_harness.cli --help
 ```
 
-## 2. 最小 CLI 路径
+## 2. 先跑最短闭环
 
-先确认 CLI 可用：
-
-```bash
-PYTHONPATH=src python -m meta_harness.cli --help
-PYTHONPATH=src python -m meta_harness.cli profile list
-```
-
-## 2.1 一键公开 demo
-
-仓库内提供了一条不依赖任何私有外部项目的最小 demo：
+最短、最稳、最适合第一次体验的路径是公开 demo：
 
 ```bash
 bash scripts/demo_public_flow.sh .demo-output
 ```
 
-这条脚本会串起：
+它会串起一次最小完整闭环，依次经过：
 
 - `run init`
 - `run execute`
@@ -60,17 +51,9 @@ bash scripts/demo_public_flow.sh .demo-output
 - `observe benchmark`
 - `artifact contract validator`
 
-产物会落到：
+## 3. 你会得到什么
 
-- `.demo-output/runs`
-- `.demo-output/candidates`
-- `.demo-output/benchmark-candidates`
-- `.demo-output/proposals`
-- `.demo-output/datasets`
-- `.demo-output/reports`
-- `.demo-output/exports`
-
-典型标准输出示例：
+脚本输出会直接打印关键 ID 和 artifact 路径，典型形态如下：
 
 ```text
 demo_root=.demo-output
@@ -85,33 +68,38 @@ benchmark_report=.demo-output/reports/benchmarks/demo_public_budget_headroom.jso
 validation_report=.demo-output/reports/demo_public_validation.json
 ```
 
-## 2.2 一键 OpenClaw demo
+最重要的输出目录：
 
-如果本机已经安装可用的 `openclaw` CLI，可以直接运行：
+- `.demo-output/runs`
+- `.demo-output/candidates`
+- `.demo-output/proposals`
+- `.demo-output/datasets`
+- `.demo-output/reports`
+- `.demo-output/exports`
 
-```bash
-bash scripts/bootstrap.sh --require-openclaw
-bash scripts/demo_openclaw_websearch_analysis.sh .openclaw-demo-output
-```
+如果你只想判断“仓库是不是能真实跑通闭环”，看到这些目录和上面的 8 个字段就够了。
 
-这条脚本会：
+## 4. 公开 demo 资产
 
-- 建立 Python 环境
-- 检查 `openclaw agent` 是否可用
-- 运行打包在仓库内的 WebSearch + Data Analysis benchmark
-- 输出 benchmark 结果和 best run 的 trace export
+公开 demo 默认使用这些仓库内置资产：
 
-主要资产：
+- `configs/profiles/demo_public.json`
+- `configs/projects/demo_public.json`
+- `configs/benchmarks/demo_public_budget_headroom.json`
+- `task_sets/demo/failure_repair.json`
+- `demo/annotations/demo_dataset_annotations.jsonl`
+- `scripts/demo_public_flow.sh`
+- `reports/benchmarks/demo_public_budget_headroom.json`
 
-- `configs/profiles/demo_openclaw.json`
-- `configs/projects/demo_openclaw.json`
-- `configs/benchmarks/demo_openclaw_websearch_analysis.json`
-- `task_sets/demo/openclaw_websearch_analysis.json`
-- `demo/openclaw_websearch_analysis/`
+它们不依赖任何本机私有项目。
 
-## 3. Dataset 路径
+## 5. 分支复现
 
-### 3.1 从 task set 物化 dataset
+如果你已经跑通最短闭环，可以按下面三条分支分别复现。
+
+### 5.1 Dataset 路径
+
+从 task set 物化 dataset：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli dataset build-task-set \
@@ -126,16 +114,16 @@ PYTHONPATH=src python -m meta_harness.cli dataset build-task-set \
 - `datasets/demo-public-cases/v1/dataset.json`
 - `datasets/demo-public-cases/v1/manifest.json`
 
-### 3.2 注入 annotation
+注入 annotation：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli dataset ingest-annotations \
   --dataset datasets/demo-public-cases/v1/dataset.json \
-  --annotations path/to/annotations.jsonl \
+  --annotations demo/annotations/demo_dataset_annotations.jsonl \
   --output datasets/demo-public-cases/v2/dataset.json
 ```
 
-### 3.3 派生 hard_case / adversarial split
+派生 hard_case split：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli dataset derive-split \
@@ -146,7 +134,7 @@ PYTHONPATH=src python -m meta_harness.cli dataset derive-split \
   --output datasets/demo-public-cases-hard/v1/dataset.json
 ```
 
-### 3.4 promotion
+promotion：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli dataset promote \
@@ -155,130 +143,68 @@ PYTHONPATH=src python -m meta_harness.cli dataset promote \
   --version v1 \
   --split hard_case \
   --promoted-by demo-user \
-  --reason "ready for regression"
+  --reason "public demo promotion"
 ```
 
-产物：
+### 5.2 Proposal / Candidate 路径
 
-- `datasets/promotions.json`
-- `datasets/promotion_records.json`
-- `datasets/<dataset_id>/<version>/promotion_target.json`
-
-## 4. Proposal 路径
-
-### 4.1 直接生成 candidate
+先 proposal-only：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli optimize propose \
   --profile demo_public \
   --project demo_public \
   --config-root configs \
-  --runs-root runs \
-  --candidates-root candidates
-```
-
-产物：
-
-- `proposals/<proposal_id>/proposal.json`
-- `candidates/<candidate_id>/candidate.json`
-- `candidates/<candidate_id>/effective_config.json`
-- `candidates/<candidate_id>/proposal.json`
-
-### 4.2 proposal-only
-
-```bash
-PYTHONPATH=src python -m meta_harness.cli optimize propose \
-  --profile demo_public \
-  --project demo_public \
-  --config-root configs \
-  --runs-root runs \
-  --candidates-root candidates \
-  --proposals-root proposals \
+  --runs-root .demo-output/runs \
+  --candidates-root .demo-output/candidates \
+  --proposals-root .demo-output/proposals \
   --proposal-only
 ```
 
-输出是 `proposal_id`。
-
-典型输出示例：
-
-```text
-<generated-proposal-id>
-```
-
-### 4.3 后续物化 candidate
+再物化 proposal：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli optimize materialize-proposal \
   --proposal-id <proposal_id> \
-  --proposals-root proposals \
-  --candidates-root candidates \
+  --proposals-root .demo-output/proposals \
+  --candidates-root .demo-output/candidates \
   --config-root configs
 ```
 
-### 4.4 使用 `llm_harness` proposer
+关键产物：
 
-如果你希望 `optimize propose` 或 `mh optimize loop` 走 LLM 风格 proposal，但又不想把仓库直接绑定到某个模型 SDK，可以在 project override 中配置 `optimization.llm_harness`：
+- `proposals/<proposal_id>/proposal.json`
+- `proposals/<proposal_id>/proposal_evaluation.json`
+- `candidates/<candidate_id>/candidate.json`
+- `candidates/<candidate_id>/effective_config.json`
 
-```json
-{
-  "workflow": "base",
-  "overrides": {
-    "optimization": {
-      "llm_harness": {
-        "command": ["python", "scripts/generate_llm_proposal.py"],
-        "model": "gpt-5.4",
-        "system_prompt": "You are an offline harness optimizer."
-      }
-    }
-  }
-}
+### 5.3 Benchmark / Loop 路径
+
+先导出 trace：
+
+```bash
+PYTHONPATH=src python -m meta_harness.cli run export-trace \
+  --run-id <run_id> \
+  --runs-root .demo-output/runs \
+  --output .demo-output/exports/<run_id>.otel.json
 ```
 
-仓库内已经提供了一个最小可运行示例：
+再跑一次最小 optimize loop：
 
-- `scripts/generate_llm_proposal.py`
-
-约定：
-
-- `command` 会收到 JSON stdin，其中包含 `model`、`system_prompt`、`user_prompt`、`objective`、`experience`、`effective_config`
-- 命令需要返回 JSON，形状与 `proposal_command` 一致：`proposal`、可选 `config_patch`、可选 `code_patch`、可选 `notes`
-- 只要 `optimization.llm_harness.command` 和 `model` 存在，`optimize propose` 会优先使用 `llm_harness`
-- `observe once --auto-propose` 在没有 `proposal_command` 时，也会识别这组配置并触发 proposal 路径
-
-最小返回示例：
-
-```json
-{
-  "proposal": {
-    "strategy": "llm_harness_patch",
-    "summary": "increase retrieval breadth before reranking"
-  },
-  "config_patch": {
-    "retrieval": {
-      "top_k": 12
-    }
-  },
-  "notes": "generated by llm harness"
-}
+```bash
+PYTHONPATH=src python -m meta_harness.cli optimize loop \
+  --profile demo_public \
+  --project demo_public \
+  --task-set task_sets/demo/failure_repair.json \
+  --config-root configs \
+  --runs-root .demo-output/runs \
+  --candidates-root .demo-output/candidates \
+  --proposals-root .demo-output/proposals \
+  --reports-root .demo-output/reports \
+  --max-iterations 1
 ```
 
-## 5. 公开 demo 资产
-
-仓库当前对外推荐的最小公开资产是：
-
-- `configs/profiles/demo_public.json`
-- `configs/projects/demo_public.json`
-- `configs/benchmarks/demo_public_budget_headroom.json`
-- `task_sets/demo/failure_repair.json`
-- `demo/annotations/demo_dataset_annotations.jsonl`
-- `scripts/demo_public_flow.sh`
-- `reports/benchmarks/demo_public_budget_headroom.json`
-
-它们不依赖任何本机私有参考项目。
-
-## 6. 公开 benchmark snapshot
-
-推荐复现命令：
+最后跑公开 benchmark：
 
 ```bash
 PYTHONPATH=src python -m meta_harness.cli observe benchmark \
@@ -293,7 +219,15 @@ PYTHONPATH=src python -m meta_harness.cli observe benchmark \
   --no-auto-compact-runs
 ```
 
-对应快照：
+关键产物：
+
+- `reports/loops/<loop_id>/loop.json`
+- `reports/loops/<loop_id>/iteration_history.jsonl`
+- `reports/benchmarks/demo_public_budget_headroom.json`
+
+## 6. 如何对照 benchmark 快照
+
+公开 benchmark 快照：
 
 - `reports/benchmarks/demo_public_budget_headroom.json`
 
@@ -304,18 +238,13 @@ PYTHONPATH=src python -m meta_harness.cli observe benchmark \
 - `best_variant=budget_plus_two`
 - `delta_from_baseline.composite=0.2`
 
-如何用它对照 loop：
+这份快照和 loop 的关系是：
 
-- `optimize loop` 在同一 `demo_public` + `failure_repair` 路径上，默认 heuristic proposal 也是把 `budget.max_turns` 增加 2
-- 因此外部读者可以直接对照 `reports/benchmarks/demo_public_budget_headroom.json` 与 `reports/loops/<loop_id>/loop.json`
-- 如果 loop 的首轮 proposal 也是 `increase_budget_on_repeated_failures`，那么它应该落到与 snapshot 同方向的改进
+- `optimize loop` 在同一 `demo_public + failure_repair` 路径上，默认 heuristic proposal 也是把 `budget.max_turns` 增加 2
+- 所以可以直接对照 `reports/benchmarks/demo_public_budget_headroom.json` 和 `reports/loops/<loop_id>/loop.json`
+- 如果 loop 首轮 proposal 也是 `increase_budget_on_repeated_failures`，那它应该落到和 snapshot 同方向的改进
 
-说明：
-
-- 这份 snapshot 是一条公开、确定性、可 smoke 的 release benchmark
-- 它用于说明 loop 的最小改进信号是否可复现，不代表真实业务任务已经成功修复
-
-## 7. 关键 artifact
+## 7. 关键 artifact 索引
 
 ### Candidate
 
@@ -358,6 +287,8 @@ PYTHONPATH=src python -m meta_harness.cli observe benchmark \
 
 ## 8. 建议验证命令
 
+如果你要验证公开 demo / artifact contract / proposal / loop 主线，最直接的一组回归入口是：
+
 ```bash
 pytest tests/test_schema_contracts.py \
   tests/test_demo_assets.py \
@@ -365,4 +296,9 @@ pytest tests/test_schema_contracts.py \
   tests/test_cli_optimize.py -q
 ```
 
-如果你要验证这轮公开 demo / artifact contract / proposal / loop 收尾主线，以上是当前最直接的一组回归入口。
+如果你只想先确认 CLI 和 demo 脚本本身能跑，优先跑：
+
+```bash
+PYTHONPATH=src python -m meta_harness.cli --help
+bash scripts/demo_public_flow.sh .demo-output
+```

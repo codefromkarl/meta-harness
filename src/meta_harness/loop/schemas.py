@@ -91,6 +91,7 @@ class SelectionResult:
     score: float
     variant_name: str | None = None
     reason: str = ""
+    selection_rationale: list[str] = field(default_factory=list)
     selection_kind: str = "current"
     raw_result: dict[str, Any] = field(default_factory=dict)
 

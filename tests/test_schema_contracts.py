@@ -11,6 +11,7 @@ from meta_harness.loop.iteration_store import (
     write_loop_summary,
 )
 from meta_harness.schemas import (
+    CandidateMetadata,
     EvaluationContract,
     EvaluationThresholds,
     EvaluatorPack,
@@ -138,6 +139,33 @@ def test_proposal_record_schema_supports_evaluation_artifact() -> None:
 
     assert payload["proposal_id"] == "proposal-1"
     assert payload["evaluation_artifact"] == "proposal_evaluation.json"
+
+
+def test_candidate_metadata_schema_supports_loop_lineage_fields() -> None:
+    payload = CandidateMetadata(
+        candidate_id="cand-1",
+        profile="base",
+        project="demo",
+        proposal_id="proposal-1",
+        source_proposal_ids=["proposal-1", "proposal-2"],
+        iteration_id="loop-1-0001",
+        source_iteration_ids=["loop-1-0001", "loop-1-0002"],
+        source_run_ids=["run-1", "run-2"],
+        source_artifacts=[
+            "candidates/cand-1/candidate.json",
+            "proposals/proposal-1/proposal.json",
+        ],
+    ).model_dump(mode="json")
+
+    assert payload["proposal_id"] == "proposal-1"
+    assert payload["source_proposal_ids"] == ["proposal-1", "proposal-2"]
+    assert payload["iteration_id"] == "loop-1-0001"
+    assert payload["source_iteration_ids"] == ["loop-1-0001", "loop-1-0002"]
+    assert payload["source_run_ids"] == ["run-1", "run-2"]
+    assert payload["source_artifacts"] == [
+        "candidates/cand-1/candidate.json",
+        "proposals/proposal-1/proposal.json",
+    ]
 
 
 def test_candidate_harness_patch_schema_supports_outer_loop_metadata() -> None:
@@ -563,6 +591,122 @@ def test_artifact_contract_validator_accepts_real_loop_proposal_dataset_and_eval
     )
     proposal_dir = proposals_root / proposal_id
 
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id=proposal_id,
+            source_proposal_ids=[proposal_id],
+            iteration_id="loop-1-0001",
+            source_iteration_ids=["loop-1-0001"],
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                str(proposal_dir / "proposal.json"),
+                str(proposal_dir / "proposal_evaluation.json"),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-1"
+                    / "iterations"
+                    / "loop-1-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "proposal.json").write_text(
+        json.dumps(
+            {
+                "strategy": "increase_budget_on_repeated_failures",
+                "proposal_id": proposal_id,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
     dataset_path = tmp_path / "datasets" / "demo-public-cases" / "v1" / "dataset.json"
     write_dataset_artifact(
         dataset_path,
@@ -652,6 +796,7 @@ def test_artifact_contract_validator_accepts_real_loop_proposal_dataset_and_eval
 
     summary = validate_artifact_contracts(
         [
+            {"artifact_kind": "candidate", "path": candidate_dir},
             {"artifact_kind": "proposal", "path": proposal_dir},
             {"artifact_kind": "dataset", "path": dataset_path.parent},
             {"artifact_kind": "loop", "path": loop_dir},
@@ -661,12 +806,2353 @@ def test_artifact_contract_validator_accepts_real_loop_proposal_dataset_and_eval
 
     assert summary["ok"] is True
     assert [item["artifact_kind"] for item in summary["items"]] == [
+        "candidate",
         "proposal",
         "dataset",
         "loop",
         "evaluator",
     ]
     assert all(not item["missing"] for item in summary["items"])
+
+
+def test_candidate_artifact_contract_rejects_empty_source_artifacts_for_lineage(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-1-0001",
+            source_artifacts=[],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "candidate.json lineage metadata requires non-empty source_artifacts"
+        in result["errors"]
+    )
+
+
+def test_candidate_artifact_contract_rejects_mismatched_proposal_id(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            source_artifacts=["proposals/proposal-1/proposal.json"],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "proposal.json").write_text(
+        json.dumps({"proposal_id": "proposal-2"}, indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "proposal.json proposal_id does not match candidate.json proposal_id"
+        in result["errors"]
+    )
+
+
+def test_candidate_artifact_contract_rejects_duplicate_lineage_lists(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            source_proposal_ids=["proposal-1", "proposal-1"],
+            source_iteration_ids=["loop-1", "loop-1"],
+            source_run_ids=["run-1", "run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                "proposals/proposal-1/proposal.json",
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert "candidate.json source_proposal_ids must be unique" in result["errors"]
+    assert "candidate.json source_iteration_ids must be unique" in result["errors"]
+    assert "candidate.json source_run_ids must be unique" in result["errors"]
+    assert "candidate.json source_artifacts must be unique" in result["errors"]
+
+
+def test_candidate_artifact_contract_rejects_iteration_id_missing_from_source_iteration_ids(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-1-0001",
+            source_iteration_ids=["loop-older-0001"],
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                "proposals/proposal-1/proposal_evaluation.json",
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "candidate.json iteration lineage requires source_iteration_ids to include iteration_id"
+        in result["errors"]
+    )
+
+
+def test_candidate_artifact_contract_rejects_proposal_id_missing_from_source_proposal_ids(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            source_proposal_ids=["proposal-older"],
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                "proposals/proposal-1/proposal_evaluation.json",
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "candidate.json proposal lineage requires source_proposal_ids to include proposal_id"
+        in result["errors"]
+    )
+
+
+def test_candidate_artifact_contract_rejects_missing_proposal_lineage_refs(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            source_run_ids=["run-1"],
+            source_artifacts=["reports/loops/loop-1/iterations/loop-1-0001/iteration.json"],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "candidate.json proposal lineage requires source_artifacts to include proposal.json"
+        in result["errors"]
+    )
+    assert (
+        "candidate.json proposal lineage requires source_artifacts to include proposal_evaluation.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_to_point_to_candidate_artifact(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-selected-candidate-artifact")
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-selected-candidate-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id=proposal_id,
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(tmp_path / "candidates" / "missing-candidate"),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-selected-candidate-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir / "iterations" / "loop-selected-candidate-artifact-0001" / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-selected-candidate-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-selected-candidate-artifact-0001/selected_candidate.json candidate_path does not point to candidate artifact"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_proposal_output_to_match_selected_candidate_lineage(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-proposal-output-mismatch")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-proposal-output-mismatch-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-proposal-output-mismatch"
+                    / "iterations"
+                    / "loop-proposal-output-mismatch-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-proposal-output-mismatch-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-2",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-proposal-output-mismatch-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir / "iterations" / "loop-proposal-output-mismatch-0001" / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-proposal-output-mismatch",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-proposal-output-mismatch-0001/proposal_output.json proposal_id does not match selected candidate artifact"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_proposal_output(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-proposal-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-proposal-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-proposal-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-proposal-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-proposal-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-proposal-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-proposal-source-artifact-0001/selected candidate artifact source_artifacts missing proposal_output.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_selected_candidate_artifact(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-selected-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-selected-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-selected-source-artifact"
+                    / "iterations"
+                    / "loop-missing-selected-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-selected-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-selected-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-selected-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-selected-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-selected-source-artifact-0001/selected candidate artifact source_artifacts missing selected_candidate.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_next_round_context(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-next-round-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-next-round-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-next-round-source-artifact"
+                    / "iterations"
+                    / "loop-missing-next-round-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-next-round-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-next-round-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-next-round-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-next-round-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-next-round-source-artifact-0001/selected candidate artifact source_artifacts missing next_round_context.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_benchmark_summary(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-benchmark-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-benchmark-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-benchmark-source-artifact"
+                    / "iterations"
+                    / "loop-missing-benchmark-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-benchmark-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-benchmark-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-benchmark-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-benchmark-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-benchmark-source-artifact-0001/selected candidate artifact source_artifacts missing benchmark_summary.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_experience_summary(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-experience-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-experience-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-experience-source-artifact"
+                    / "iterations"
+                    / "loop-missing-experience-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-experience-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-experience-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-experience-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-experience-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-experience-source-artifact-0001/selected candidate artifact source_artifacts missing experience_summary.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_validation_summary(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-validation-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-validation-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-validation-source-artifact"
+                    / "iterations"
+                    / "loop-missing-validation-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-validation-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-validation-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-validation-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-validation-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-validation-source-artifact-0001/selected candidate artifact source_artifacts missing validation_summary.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_proposer_context(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-proposer-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-proposer-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposer-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposer-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-proposer-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-proposer-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-proposer-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-proposer-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-proposer-source-artifact-0001/selected candidate artifact source_artifacts missing proposer_context"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_proposal_input(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-proposal-input-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-proposal-input-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-proposal-input-source-artifact"
+                    / "iterations"
+                    / "loop-missing-proposal-input-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-proposal-input-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-proposal-input-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-proposal-input-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-proposal-input-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-proposal-input-source-artifact-0001/selected candidate artifact source_artifacts missing proposal_input.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_iteration_json(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-iteration-source-artifact")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-iteration-source-artifact-0001",
+            source_run_ids=["run-1"],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-iteration-source-artifact"
+                    / "iterations"
+                    / "loop-missing-iteration-source-artifact-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-iteration-source-artifact-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-iteration-source-artifact-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir
+        / "iterations"
+        / "loop-missing-iteration-source-artifact-0001"
+        / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-iteration-source-artifact",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-iteration-source-artifact-0001/selected candidate artifact source_artifacts missing iteration.json"
+        in result["errors"]
+    )
+
+
+def test_loop_contract_validator_requires_selected_candidate_lineage_to_include_selected_run_id(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-source-run-id")
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate.json").write_text(
+        CandidateMetadata(
+            candidate_id="cand-1",
+            profile="demo_public",
+            project="demo_public",
+            proposal_id="proposal-1",
+            iteration_id="loop-missing-source-run-id-0001",
+            source_run_ids=[],
+            source_artifacts=[
+                "proposals/proposal-1/proposal.json",
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "iteration.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "proposal_input.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "proposal_output.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "selected_candidate.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "next_round_context.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "benchmark_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "experience_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "validation_summary.json"
+                ),
+                str(
+                    tmp_path
+                    / "reports"
+                    / "loops"
+                    / "loop-missing-source-run-id"
+                    / "iterations"
+                    / "loop-missing-source-run-id-0001"
+                    / "proposer_context"
+                ),
+            ],
+        ).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    request = SearchLoopRequest(
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        profile_name="demo_public",
+        project_name="demo_public",
+        task_set_path=tmp_path / "task_set.json",
+    )
+    proposal_id = create_proposal_record(
+        proposals_root=tmp_path / "proposals",
+        profile_name="demo_public",
+        project_name="demo_public",
+        proposer_kind="heuristic",
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_evaluation={"selected": True},
+    )
+    proposal_dir = tmp_path / "proposals" / proposal_id
+    iteration = LoopIterationArtifact(
+        iteration_id="loop-missing-source-run-id-0001",
+        iteration_index=1,
+        objective={"focus": "budget"},
+        experience={"matching_runs": [{"run_id": "run-1"}]},
+        proposal={"strategy": "increase_budget_on_repeated_failures"},
+        proposal_id="proposal-1",
+        proposal_path=str(proposal_dir),
+        candidate_id="cand-1",
+        candidate_path=str(candidate_dir),
+        run_id="run-1",
+        run_path=str(tmp_path / "runs" / "run-1"),
+        selection=SelectionResult(candidate_id="cand-1", run_id="run-1", score=0.8),
+        stop_decision=StopDecision(
+            should_stop=True,
+            reason="target score reached",
+            iteration_index=1,
+            max_iterations=1,
+        ),
+        evaluation={"variants": [{"name": "budget_plus_two", "score": {"composite": 0.8}}]},
+        summary={"score": 0.8},
+        artifacts={
+            "proposer_context": str(
+                loop_dir
+                / "iterations"
+                / "loop-missing-source-run-id-0001"
+                / "proposer_context"
+            )
+        },
+        proposal_evaluation={"selected": True, "proposal_rank": 1},
+    )
+    write_iteration_artifact(loop_dir, iteration)
+    proposer_context_dir = (
+        loop_dir / "iterations" / "loop-missing-source-run-id-0001" / "proposer_context"
+    )
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    append_iteration_history(loop_dir, iteration)
+    write_loop_summary(
+        loop_dir,
+        LoopSummary(
+            loop_id="loop-missing-source-run-id",
+            profile_name="demo_public",
+            project_name="demo_public",
+            request=request,
+            best_candidate_id="cand-1",
+            best_run_id="run-1",
+            best_score=0.8,
+            iteration_count=1,
+            stop_reason="target score reached",
+            iterations=[iteration],
+            loop_dir=str(loop_dir),
+        ),
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "iterations/loop-missing-source-run-id-0001/selected candidate artifact source_run_ids missing run_id"
+        in result["errors"]
+    )
 
 
 def test_artifact_contract_validator_reports_missing_required_files(tmp_path: Path) -> None:
@@ -898,6 +3384,72 @@ def test_loop_contract_validator_requires_validation_summary_to_match_benchmark_
     )
 
 
+def test_candidate_artifact_contract_rejects_mismatched_canonical_lineage(
+    tmp_path: Path,
+) -> None:
+    candidate_dir = tmp_path / "candidates" / "cand-1"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "candidate_fingerprint.txt").write_text(
+        "candidate-fingerprint",
+        encoding="utf-8",
+    )
+    (candidate_dir / "effective_config.json").write_text("{}", encoding="utf-8")
+    (candidate_dir / "candidate.json").write_text(
+        json.dumps(
+            {
+                "candidate_id": "cand-1",
+                "profile": "demo_public",
+                "project": "demo_public",
+                "parent_candidate_id": "cand-parent",
+                "proposal_id": "proposal-1",
+                "source_proposal_ids": ["proposal-1"],
+                "iteration_id": "iter-1",
+                "source_iteration_ids": ["iter-1"],
+                "source_run_ids": ["run-1"],
+                "source_artifacts": ["proposals/proposal-1/proposal.json"],
+                "lineage": {
+                    "parent_candidate_id": "cand-other",
+                    "proposal_id": "proposal-2",
+                    "source_proposal_ids": ["proposal-2"],
+                    "iteration_id": "iter-2",
+                    "source_iteration_ids": ["iter-2"],
+                    "source_run_ids": ["run-2"],
+                    "source_artifacts": ["runs/run-2"],
+                },
+                "created_at": "2026-04-09T00:00:00Z",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_artifact_contract(
+        artifact_kind="candidate",
+        path=candidate_dir,
+    )
+
+    assert result["ok"] is False
+    assert (
+        "candidate.json lineage.parent_candidate_id does not match parent_candidate_id"
+        in result["errors"]
+    )
+    assert "candidate.json lineage.proposal_id does not match proposal_id" in result["errors"]
+    assert (
+        "candidate.json lineage.source_proposal_ids does not match source_proposal_ids"
+        in result["errors"]
+    )
+    assert "candidate.json lineage.iteration_id does not match iteration_id" in result["errors"]
+    assert (
+        "candidate.json lineage.source_iteration_ids does not match source_iteration_ids"
+        in result["errors"]
+    )
+    assert "candidate.json lineage.source_run_ids does not match source_run_ids" in result["errors"]
+    assert (
+        "candidate.json lineage.source_artifacts does not match source_artifacts"
+        in result["errors"]
+    )
+
+
 def test_loop_contract_validator_requires_validation_summary_path_to_match_artifact(
     tmp_path: Path,
 ) -> None:
@@ -999,6 +3551,7 @@ def test_loop_contract_validator_accepts_absolute_validation_summary_path(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1061,6 +3614,7 @@ def test_loop_contract_validator_accepts_absolute_validation_summary_artifact_li
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": str(validation_summary_path.resolve()),
             },
@@ -1118,6 +3672,7 @@ def test_loop_contract_validator_accepts_relative_validation_summary_path(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1232,6 +3787,7 @@ def test_loop_contract_validator_accepts_relative_experience_summary_path(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1291,6 +3847,7 @@ def test_loop_contract_validator_accepts_absolute_experience_summary_path(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1541,6 +4098,68 @@ def test_loop_contract_validator_requires_selected_candidate_artifact_link(
     )
 
 
+def test_loop_contract_validator_requires_proposal_output_artifact_link(
+    tmp_path: Path,
+) -> None:
+    loop_dir = loop_root_path(tmp_path / "reports", "loop-missing-proposal-output-link")
+    iteration_dir = loop_dir / "iterations" / "loop-missing-proposal-output-link-0001"
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+    proposer_context_dir = iteration_dir / "proposer_context"
+    proposer_context_dir.mkdir(parents=True, exist_ok=True)
+    (proposer_context_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    (loop_dir / "loop.json").write_text(
+        json.dumps(
+            {
+                "loop_id": "loop-missing-proposal-output-link",
+                "profile_name": "demo",
+                "project_name": "demo",
+                "request": {},
+                "iteration_count": 1,
+                "stop_reason": "done",
+                "iterations": [{"iteration_id": "loop-missing-proposal-output-link-0001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (loop_dir / "iteration_history.jsonl").write_text(
+        json.dumps({"iteration_id": "loop-missing-proposal-output-link-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    for name, payload in {
+        "iteration.json": {"iteration_id": "loop-missing-proposal-output-link-0001"},
+        "proposal_input.json": {"objective": {}, "experience": {}},
+        "proposal_output.json": {"proposal": {}},
+        "selected_candidate.json": {"candidate_id": "cand-1"},
+        "benchmark_summary.json": {"evaluation": {"validation": {"status": "passed"}}},
+        "validation_summary.json": {"status": "passed"},
+        "experience_summary.json": {"iteration_id": "loop-missing-proposal-output-link-0001"},
+        "next_round_context.json": {
+            "experience_summary_path": "experience_summary.json",
+            "validation_summary_path": "validation_summary.json",
+            "artifacts": {
+                "benchmark_summary_json": "benchmark_summary.json",
+                "proposer_context": "proposer_context",
+                "selected_candidate_json": "selected_candidate.json",
+                "experience_summary_json": "experience_summary.json",
+                "validation_summary_json": "validation_summary.json",
+            },
+        },
+    }.items():
+        (iteration_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    result = validate_artifact_contract(
+        artifact_kind="loop",
+        path=loop_dir,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "next_round_context.json missing artifacts.proposal_output_json" in error
+        for error in result["errors"]
+    )
+
+
 def test_loop_contract_validator_accepts_relative_benchmark_summary_artifact_link(
     tmp_path: Path,
 ) -> None:
@@ -1584,6 +4203,7 @@ def test_loop_contract_validator_accepts_relative_benchmark_summary_artifact_lin
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1643,6 +4263,7 @@ def test_loop_contract_validator_accepts_absolute_benchmark_summary_artifact_lin
                 "benchmark_summary_json": str(benchmark_summary_path.resolve()),
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -1948,6 +4569,7 @@ def test_loop_contract_validator_accepts_relative_experience_summary_artifact_li
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -2007,6 +4629,7 @@ def test_loop_contract_validator_accepts_absolute_experience_summary_artifact_li
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": str(experience_summary_path.resolve()),
                 "validation_summary_json": "validation_summary.json",
             },
@@ -2065,6 +4688,7 @@ def test_loop_contract_validator_accepts_relative_proposer_context_link(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": "proposer_context",
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },
@@ -2123,6 +4747,7 @@ def test_loop_contract_validator_accepts_absolute_proposer_context_link(
                 "benchmark_summary_json": "benchmark_summary.json",
                 "proposer_context": str(proposer_context_dir.resolve()),
                 "selected_candidate_json": "selected_candidate.json",
+                "proposal_output_json": "proposal_output.json",
                 "experience_summary_json": "experience_summary.json",
                 "validation_summary_json": "validation_summary.json",
             },

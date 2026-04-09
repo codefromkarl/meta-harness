@@ -22,6 +22,12 @@ from meta_harness.services.benchmark_service import (
     write_benchmark_suite_report,
 )
 from meta_harness.services.dataset_service import extract_failure_dataset_to_path
+from meta_harness.services.db_projection import (
+    ensure_db_projection_store,
+    list_db_projections,
+    load_db_projection,
+    upsert_db_projection,
+)
 from meta_harness.services.export_service import export_run_trace_to_path
 from meta_harness.services.export_service import export_run_trace_to_integration
 from meta_harness.services.integration_catalog_service import export_payload_to_integration
@@ -36,6 +42,7 @@ from meta_harness.services.job_service import (
     load_job_view,
     start_job_record,
 )
+from meta_harness.services.job_runtime_service import process_pending_jobs
 from meta_harness.services.async_jobs import (
     submit_dataset_extract_job,
     submit_observation_benchmark_job,
@@ -47,7 +54,7 @@ from meta_harness.services.async_jobs import (
     submit_workflow_benchmark_suite_job,
     submit_workflow_run_job,
 )
-from meta_harness.services.service_execution import execute_inline_job
+from meta_harness.services.service_execution import create_queued_job, execute_inline_job
 from meta_harness.services.service_response import error_response, success_response
 from meta_harness.services.observation_service import (
     observe_once_payload,
@@ -431,13 +438,30 @@ def test_export_service_persists_integration_export_artifact_when_reports_root_p
     runs_root = tmp_path / "runs"
     reports_root = tmp_path / "reports"
     config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
     run_dir = runs_root / "run123"
     task_dir = run_dir / "tasks" / "task-a"
     task_dir.mkdir(parents=True)
 
     write_json(
+        candidates_root / "cand-001" / "candidate.json",
+        {
+            "candidate_id": "cand-001",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidates_root / "cand-001" / "effective_config.json", {"budget": {"max_turns": 12}})
+    write_json(
         run_dir / "run_metadata.json",
-        {"run_id": "run123", "profile": "base", "project": "demo"},
+        {"run_id": "run123", "profile": "base", "project": "demo", "candidate_id": "cand-001"},
     )
     write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
     (task_dir / "steps.jsonl").write_text(
@@ -470,6 +494,7 @@ def test_export_service_persists_integration_export_artifact_when_reports_root_p
 
     payload = export_run_trace_to_integration(
         runs_root=runs_root,
+        candidates_root=candidates_root,
         run_id="run123",
         config_root=config_root,
         integration_name="otlp",
@@ -483,8 +508,179 @@ def test_export_service_persists_integration_export_artifact_when_reports_root_p
     assert artifact_path.exists()
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert artifact["run_id"] == "run123"
+    assert artifact["candidate_lineage"]["proposal_id"] == "proposal-1"
+    assert artifact["candidate_lineage"]["source_run_ids"] == ["run-1"]
     assert artifact["integration"]["name"] == "otlp"
     assert artifact["integration"]["status_code"] == 200
+
+
+def test_export_service_persists_phoenix_api_request_when_reports_root_provided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        candidates_root / "cand-001" / "candidate.json",
+        {
+            "candidate_id": "cand-001",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidates_root / "cand-001" / "effective_config.json", {"budget": {"max_turns": 12}})
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo", "candidate_id": "cand-001"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "phoenix.json",
+        {
+            "name": "phoenix",
+            "kind": "phoenix",
+            "endpoint": "http://127.0.0.1:6006/phoenix/traces",
+            "timeout_sec": 7.0,
+            "retry_limit": 2,
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_run_trace_to_integration(
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        run_id="run123",
+        config_root=config_root,
+        integration_name="phoenix",
+        export_format="phoenix-json",
+        reports_root=reports_root,
+    )
+
+    assert payload["destination"] == "integration"
+    artifact_path = tmp_path / payload["artifact_path"]
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    phoenix_api_request = artifact["phoenix_api_request"]
+    assert phoenix_api_request is not None
+    assert phoenix_api_request["endpoint"] == "http://127.0.0.1:6006/phoenix/traces"
+    assert phoenix_api_request["project_name"] == "meta-harness/demo"
+    assert phoenix_api_request["trace_count"] == 1
+    assert phoenix_api_request["timeout_sec"] == 7.0
+    assert artifact["integration"]["phoenix_api_request"]["retry_limit"] == 2
+
+
+def test_export_service_persists_langfuse_api_request_when_reports_root_provided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_root = tmp_path / "runs"
+    reports_root = tmp_path / "reports"
+    config_root = tmp_path / "configs"
+    candidates_root = tmp_path / "candidates"
+    run_dir = runs_root / "run123"
+    task_dir = run_dir / "tasks" / "task-a"
+    task_dir.mkdir(parents=True)
+
+    write_json(
+        candidates_root / "cand-001" / "candidate.json",
+        {
+            "candidate_id": "cand-001",
+            "profile": "base",
+            "project": "demo",
+            "notes": "candidate",
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-1"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+    )
+    write_json(candidates_root / "cand-001" / "effective_config.json", {"budget": {"max_turns": 12}})
+    write_json(
+        run_dir / "run_metadata.json",
+        {"run_id": "run123", "profile": "base", "project": "demo", "candidate_id": "cand-001"},
+    )
+    write_json(run_dir / "effective_config.json", {"evaluation": {"evaluators": ["basic"]}})
+    (task_dir / "steps.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run123",
+                "task_id": "task-a",
+                "step_id": "step-1",
+                "phase": "tool_call",
+                "status": "completed",
+                "tool_name": "rg",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_json(
+        config_root / "integrations" / "langfuse.json",
+        {
+            "name": "langfuse",
+            "kind": "langfuse",
+            "endpoint": "http://127.0.0.1:3000/api/public/ingestion",
+            "timeout_sec": 7.0,
+            "retry_limit": 2,
+        },
+    )
+
+    def fake_post_json(**kwargs):  # type: ignore[no-untyped-def]
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = export_run_trace_to_integration(
+        runs_root=runs_root,
+        candidates_root=candidates_root,
+        run_id="run123",
+        config_root=config_root,
+        integration_name="langfuse",
+        export_format="langfuse-json",
+        reports_root=reports_root,
+    )
+
+    assert payload["destination"] == "integration"
+    artifact_path = tmp_path / payload["artifact_path"]
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    langfuse_api_request = artifact["langfuse_api_request"]
+    assert langfuse_api_request is not None
+    assert langfuse_api_request["endpoint"] == "http://127.0.0.1:3000/api/public/ingestion"
+    assert langfuse_api_request["trace_id"] == "run123"
+    assert langfuse_api_request["trace_name"] == "meta-harness:demo"
+    assert langfuse_api_request["observation_count"] == 1
+    assert langfuse_api_request["timeout_sec"] == 7.0
+    assert artifact["integration"]["langfuse_api_request"]["retry_limit"] == 2
 
 
 def test_integration_catalog_service_retries_retryable_status_codes(
@@ -545,7 +741,7 @@ def test_integration_catalog_service_classifies_non_retryable_http_failure(
     payload = export_payload_to_integration(
         config_root=config_root,
         name="phoenix",
-        payload={"run_id": "run123"},
+        payload={"run_id": "run123", "project_name": "meta-harness/demo", "traces": [{}]},
     )
 
     assert payload["status_code"] == 422
@@ -553,6 +749,8 @@ def test_integration_catalog_service_classifies_non_retryable_http_failure(
     assert payload["failure_kind"] == "remote_rejected"
     assert payload["retryable"] is False
     assert payload["retry_exhausted"] is False
+    assert payload["phoenix_api_request"]["project_name"] == "meta-harness/demo"
+    assert payload["phoenix_api_request"]["trace_count"] == 1
 
 
 def test_integration_catalog_service_classifies_connection_error_after_retries(
@@ -853,7 +1051,119 @@ def test_observation_service_runs_once_and_returns_payload(tmp_path: Path) -> No
     assert payload["run_id"]
     assert payload["score"]["composite"] == 1.0
     assert payload["needs_optimization"] is False
-    assert payload["recommended_focus"] == "none"
+
+
+def test_observation_service_uses_shadow_validation_policy_for_auto_shadow_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meta_harness.services import observation_service as observation_service_module
+
+    shadow_calls: list[str] = []
+
+    monkeypatch.setattr(
+        observation_service_module,
+        "load_effective_config",
+        lambda **_: {
+            "runtime": {"binding": {"binding_id": "source-binding"}},
+            "optimization": {
+                "shadow_validation_policy": {
+                    "enabled": True,
+                    "triggers": ["observation_auto_propose"],
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        observation_service_module,
+        "execute_managed_run",
+        lambda **_: {"run_id": "run-observe", "score": {"composite": 0.5}},
+    )
+    monkeypatch.setattr(
+        observation_service_module,
+        "summarize_observation",
+        lambda **_: {
+            "needs_optimization": True,
+            "recommended_focus": "retrieval",
+            "score": {"composite": 0.5},
+            "architecture_recommendation": {"strategy": "tighten-retrieval"},
+        },
+    )
+    monkeypatch.setattr(
+        observation_service_module,
+        "propose_candidate_from_architecture_recommendation",
+        lambda **_: "cand-shadow",
+    )
+
+    def fake_shadow_run_candidate(**_: object) -> str:
+        shadow_calls.append("cand-shadow")
+        return "shadow-run-1"
+
+    monkeypatch.setattr(
+        observation_service_module,
+        "shadow_run_candidate",
+        fake_shadow_run_candidate,
+    )
+
+    payload = observation_service_module.observe_once_payload(
+        profile_name="base",
+        project_name="demo",
+        task_set_path=tmp_path / "observe_task_set.json",
+        config_root=tmp_path / "configs",
+        runs_root=tmp_path / "runs",
+        candidates_root=tmp_path / "candidates",
+        auto_propose=True,
+        method_id="method-a",
+        target_binding_id="target-binding",
+    )
+
+    assert shadow_calls == ["cand-shadow"]
+    assert payload["triggered_shadow_run"] is True
+    assert payload["shadow_run_id"] == "shadow-run-1"
+    assert payload["shadow_validation_policy"]["trigger"] == "observation_auto_propose"
+    assert payload["shadow_validation_policy"]["triggered"] is True
+
+
+def test_export_payload_to_integration_records_otlp_transport_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meta_harness.services import integration_catalog_service as integration_catalog_service_module
+
+    config_root = tmp_path / "configs"
+    captured: dict[str, object] = {}
+    write_json(
+        config_root / "integrations" / "otlp.json",
+        {
+            "name": "otlp",
+            "kind": "otlp_http",
+            "endpoint": "https://collector.example",
+            "timeout_sec": 7,
+            "retry_limit": 2,
+            "retry_backoff_sec": 0.5,
+            "headers": {"Authorization": "Bearer token"},
+        },
+    )
+
+    def fake_post_json(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"status_code": 200, "body": {"accepted": True}}
+
+    monkeypatch.setattr(integration_catalog_service_module, "_post_json", fake_post_json)
+
+    payload = integration_catalog_service_module.export_payload_to_integration(
+        config_root=config_root,
+        name="otlp",
+        payload={"run_id": "run123"},
+    )
+
+    otlp_transport_request = payload["otlp_transport_request"]
+    assert otlp_transport_request is not None
+    assert otlp_transport_request["endpoint"] == "https://collector.example/v1/traces"
+    assert otlp_transport_request["retry_limit"] == 2
+    assert otlp_transport_request["timeout_sec"] == 7.0
+    assert captured["url"] == otlp_transport_request["endpoint"]
+    assert captured["payload"] == {"run_id": "run123"}
 
 
 def test_optimize_service_proposes_candidate_from_failures(tmp_path: Path) -> None:
@@ -1275,6 +1585,7 @@ def test_job_service_persists_and_updates_job_lifecycle(tmp_path: Path) -> None:
     )
 
     assert created["status"] == "queued"
+    assert created["execution_mode"] == "inline"
     assert started["status"] == "running"
     assert completed["status"] == "succeeded"
     assert completed["result_ref"]["target_id"] == "run123"
@@ -1453,6 +1764,7 @@ def test_execute_inline_job_runs_lifecycle_and_returns_success_envelope(
     assert payload["ok"] is True
     assert payload["data"]["run_id"] == "run123"
     assert payload["job"]["status"] == "succeeded"
+    assert payload["job"]["execution_mode"] == "inline"
     assert payload["job"]["result_ref"]["target_id"] == "run123"
 
 
@@ -1470,7 +1782,94 @@ def test_execute_inline_job_captures_failure_in_job_and_response(tmp_path: Path)
     assert payload["data"] is None
     assert payload["error"]["code"] == "job_failed"
     assert payload["job"]["status"] == "failed"
+    assert payload["job"]["execution_mode"] == "inline"
     assert payload["job"]["error"]["message"] == "kaboom"
+
+
+def test_process_pending_jobs_executes_queued_worker_jobs(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+
+    queued = create_queued_job(
+        reports_root=reports_root,
+        job_type="run.score",
+        job_input={"run_id": "run123"},
+        requested_by="tester",
+    )
+
+    assert queued["job"]["status"] == "queued"
+    assert queued["job"]["execution_mode"] == "queued"
+
+    payload = process_pending_jobs(
+        reports_root=reports_root,
+        worker_handlers={
+            "run.score": lambda job_input: (
+                {"run_id": job_input["run_id"], "composite": 1.5},
+                {
+                    "target_type": "run",
+                    "target_id": job_input["run_id"],
+                    "path": f"runs/{job_input['run_id']}/score_report.json",
+                },
+            )
+        },
+    )
+
+    assert payload["processed_count"] == 1
+    assert payload["failed_count"] == 0
+    assert payload["skipped_count"] == 0
+    assert payload["processed_jobs"][0]["job_type"] == "run.score"
+    assert payload["processed_jobs"][0]["status"] == "succeeded"
+
+    job_record = load_job_record(reports_root=reports_root, job_id=queued["job"]["job_id"])
+    assert job_record["status"] == "succeeded"
+    assert job_record["execution_mode"] == "queued"
+    assert job_record["result_ref"]["target_id"] == "run123"
+
+
+def test_db_projection_store_applies_initial_migration(tmp_path: Path) -> None:
+    db_path = tmp_path / "reports" / "projection.sqlite3"
+
+    payload = ensure_db_projection_store(db_path)
+
+    assert payload["schema_version"] == 1
+    assert payload["migrations"] == ["0001_projection_entries"]
+    assert db_path.exists()
+
+
+def test_db_projection_store_upserts_and_lists_entries(tmp_path: Path) -> None:
+    db_path = tmp_path / "reports" / "projection.sqlite3"
+
+    upsert_db_projection(
+        db_path=db_path,
+        projection_type="run_summary",
+        target_id="run-123",
+        payload={"run_id": "run-123", "status": "succeeded"},
+    )
+    upsert_db_projection(
+        db_path=db_path,
+        projection_type="run_summary",
+        target_id="run-123",
+        payload={"run_id": "run-123", "status": "superseded"},
+    )
+    upsert_db_projection(
+        db_path=db_path,
+        projection_type="job_summary",
+        target_id="job-001",
+        payload={"job_id": "job-001", "status": "queued"},
+    )
+
+    run_projection = load_db_projection(
+        db_path=db_path,
+        projection_type="run_summary",
+        target_id="run-123",
+    )
+    projections = list_db_projections(db_path=db_path)
+    run_only = list_db_projections(db_path=db_path, projection_type="run_summary")
+
+    assert run_projection is not None
+    assert run_projection["payload"]["status"] == "superseded"
+    assert len(projections) == 2
+    assert len(run_only) == 1
+    assert run_only[0]["target_id"] == "run-123"
 
 
 def test_async_job_facade_submits_run_score_job(tmp_path: Path) -> None:

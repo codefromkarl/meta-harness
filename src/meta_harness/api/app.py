@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse, Response
 
 from meta_harness.api.routes_core import register_core_routes
 from meta_harness.api.routes_data_ops import register_data_ops_routes
+from meta_harness.api.routes_dashboard import register_dashboard_routes
 from meta_harness.api.routes_execution_ops import register_execution_ops_routes
 from meta_harness.api.routes_integrations import register_integration_routes
 
@@ -250,17 +252,45 @@ def __getattr__(name: str):
     return value
 
 
+@dataclass(frozen=True)
+class WorkspaceAuthContext:
+    principal: str
+    token_authenticated: bool
+    workspace_id: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Meta-Harness API", version="0.1.0")
     bearer_token = os.getenv("META_HARNESS_API_BEARER_TOKEN")
+    workspace_header = os.getenv("META_HARNESS_API_WORKSPACE_HEADER", "X-Meta-Harness-Workspace")
+    required_workspace_id = os.getenv("META_HARNESS_API_WORKSPACE_ID")
     app.state.idempotency_cache = {}
 
     @app.middleware("http")
     async def require_bearer_token(request: Request, call_next):
-        if not bearer_token or request.url.path == "/health":
+        if request.url.path == "/health":
+            request.state.workspace_auth = WorkspaceAuthContext(
+                principal="healthcheck",
+                token_authenticated=False,
+                workspace_id=required_workspace_id,
+            )
             return await call_next(request)
-        if request.headers.get("Authorization") != f"Bearer {bearer_token}":
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        token_authenticated = False
+        if bearer_token:
+            if request.headers.get("Authorization") != f"Bearer {bearer_token}":
+                return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+            token_authenticated = True
+        requested_workspace_id = request.headers.get(workspace_header)
+        if required_workspace_id and requested_workspace_id != required_workspace_id:
+            return JSONResponse(status_code=403, content={"detail": "Workspace forbidden"})
+        request.state.workspace_auth = WorkspaceAuthContext(
+            principal="api_token" if token_authenticated else "anonymous",
+            token_authenticated=token_authenticated,
+            workspace_id=requested_workspace_id or required_workspace_id,
+        )
         return await call_next(request)
 
     @app.middleware("http")
@@ -322,5 +352,6 @@ def create_app() -> FastAPI:
     register_data_ops_routes(app)
     register_integration_routes(app)
     register_execution_ops_routes(app)
+    register_dashboard_routes(app)
 
     return app

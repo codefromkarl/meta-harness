@@ -433,6 +433,7 @@
 
 - `format`: `otel-json|phoenix-json|langfuse-json`
 - `destination`: `download|integration`
+- `candidates_root`: 可选；若提供，trace export 应在输出 payload 中投影候选的 canonical `lineage`
 
 当 `destination=integration` 时，返回的 integration 结果应至少包含：
 

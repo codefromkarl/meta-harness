@@ -7,11 +7,16 @@ from typing import Any
 from uuid import uuid4
 
 from meta_harness.archive import load_run_record
-from meta_harness.candidates import create_candidate, load_candidate_record
+from meta_harness.candidates import (
+    backfill_candidate_lineage,
+    create_candidate,
+    load_candidate_record,
+)
 from meta_harness.config_loader import load_effective_config
 from meta_harness.loop.experience import assemble_experience_context
 from meta_harness.loop.iteration_store import (
     append_iteration_history,
+    candidate_lineage_artifact_paths,
     iteration_path,
     loop_root_path,
     write_iteration_artifact,
@@ -35,6 +40,10 @@ from meta_harness.proposers import rank_proposals
 from meta_harness.scoring import score_run
 from meta_harness.optimizer_shadow import shadow_run_candidate
 from meta_harness.benchmark_engine import run_benchmark
+from meta_harness.services.gate_policy_service import (
+    resolve_shadow_validation_policy,
+    should_trigger_shadow_validation,
+)
 
 
 def run_search_loop(
@@ -261,6 +270,8 @@ def run_search_loop(
                 proposal_id=proposal_id,
                 candidates_root=request.candidates_root,
                 config_root=request.config_root,
+                iteration_id=iteration_id,
+                source_artifacts=[proposal_path, proposer_context["bundle_dir"]],
             )
             candidate_id = materialized["candidate_id"]
         else:
@@ -272,6 +283,9 @@ def run_search_loop(
                 config_patch=config_patch if isinstance(config_patch, dict) else None,
                 code_patch_content=code_patch if isinstance(code_patch, str) else None,
                 notes=notes,
+                proposal_id=proposal_id,
+                iteration_id=iteration_id,
+                source_artifacts=[proposer_context["bundle_dir"]],
                 proposal=proposal_result,
                 reuse_existing=True,
             )
@@ -375,6 +389,14 @@ def run_search_loop(
             **artifact.artifacts,
             **{name: str(path) for name, path in paths.items()},
         }
+        backfill_candidate_lineage(
+            candidates_root=request.candidates_root,
+            candidate_id=candidate_id,
+            proposal_id=proposal_id,
+            iteration_id=iteration_id,
+            source_run_ids=[selection.run_id] if selection.run_id else [],
+            source_artifacts=candidate_lineage_artifact_paths(paths),
+        )
         paths["iteration_json"].write_text(
             json.dumps(artifact.model_dump(), indent=2),
             encoding="utf-8",
@@ -534,6 +556,42 @@ def execute_evaluation_plan(
             **benchmark_payload,
         }
 
+    shadow_validation_policy = resolve_shadow_validation_policy(
+        effective_config=effective_config,
+        evaluation_plan=evaluation_plan,
+        trigger="loop_shadow_run",
+    )
+    validation_payload = _maybe_run_shadow_validation(
+        request=request,
+        evaluation_plan=evaluation_plan,
+        candidate_id=candidate_id,
+        effective_config=effective_config,
+        validation_fn=validation_fn,
+        shadow_validation_policy=shadow_validation_policy,
+    )
+    if validation_payload is not None:
+        validation_status = str(validation_payload.get("status", "")).strip().lower()
+        if (
+            validation_status
+            and validation_status not in {"passed", "pass", "ok", "completed"}
+            and shadow_validation_policy.get("failure_behavior") == "fail_evaluation"
+        ):
+            return {
+                "mode": "shadow-run",
+                "candidate_id": candidate_id,
+                "executor": {
+                    "kind": "shadow-run",
+                    "status": "validation_failed",
+                },
+                "validation": validation_payload,
+                "shadow_validation_policy": shadow_validation_policy,
+                "shadow_run_skipped": True,
+                "error": str(
+                    validation_payload.get("reason")
+                    or "shadow validation failed"
+                ),
+            }
+
     run_id = shadow_run_fn(
         candidates_root=request.candidates_root,
         runs_root=request.runs_root,
@@ -552,6 +610,8 @@ def execute_evaluation_plan(
             "status": "completed",
             "run_id": run_id,
         },
+        "validation": validation_payload,
+        "shadow_validation_policy": shadow_validation_policy,
         "run_id": run_id,
         "score": score,
         "run_record": run_record,
@@ -575,6 +635,38 @@ def _maybe_run_lightweight_validation(
         evaluation_plan=evaluation_plan,
         candidate_id=candidate_id,
         effective_config=effective_config,
+    )
+
+
+def _maybe_run_shadow_validation(
+    *,
+    request: SearchLoopRequest,
+    evaluation_plan: dict[str, Any],
+    candidate_id: str,
+    effective_config: dict[str, Any],
+    shadow_validation_policy: dict[str, Any],
+    validation_fn: Any = None,
+) -> dict[str, Any] | None:
+    if not should_trigger_shadow_validation(
+        shadow_validation_policy,
+        trigger="loop_shadow_run",
+    ):
+        return None
+    shadow_validation_plan = dict(evaluation_plan)
+    validation_command = shadow_validation_policy.get("validation_command")
+    if isinstance(validation_command, list):
+        shadow_validation_plan["validation_command"] = [
+            str(item) for item in validation_command
+        ]
+    validation_workdir = shadow_validation_policy.get("validation_workdir")
+    if validation_workdir is not None:
+        shadow_validation_plan["validation_workdir"] = str(validation_workdir)
+    return _maybe_run_lightweight_validation(
+        request=request,
+        evaluation_plan=shadow_validation_plan,
+        candidate_id=candidate_id,
+        effective_config=effective_config,
+        validation_fn=validation_fn,
     )
 
 

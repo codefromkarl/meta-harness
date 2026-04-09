@@ -80,6 +80,7 @@ def submit_run_export_trace_job(
     *,
     reports_root: Path,
     runs_root: Path,
+    candidates_root: Path | None = None,
     run_id: str,
     output_path: Path | None = None,
     export_format: str = "otel-json",
@@ -105,6 +106,7 @@ def submit_run_export_trace_job(
         job_input={
             "reports_root": str(reports_root),
             "runs_root": str(runs_root),
+            "candidates_root": str(candidates_root) if candidates_root is not None else None,
             "run_id": run_id,
             "format": export_format,
             "destination": destination,
@@ -115,6 +117,7 @@ def submit_run_export_trace_job(
         runner=lambda: (
             export_run_trace_to_path(
                 runs_root=runs_root,
+                candidates_root=candidates_root,
                 run_id=run_id,
                 output_path=output_path,
                 export_format=export_format,
@@ -122,6 +125,7 @@ def submit_run_export_trace_job(
             if destination == "download"
             else export_run_trace_to_integration(
                 runs_root=runs_root,
+                candidates_root=candidates_root,
                 run_id=run_id,
                 config_root=config_root,
                 integration_name=integration_name,

@@ -1,6 +1,6 @@
 # Meta-Harness Data Model v1
 
-更新时间：2026-04-07
+更新时间：2026-04-09
 
 ## 1. 目标
 
@@ -90,6 +90,13 @@ canonical artifact：
 - `project`
 - `notes`
 - `parent_candidate_id`
+- `proposal_id`
+- `source_proposal_ids`
+- `iteration_id`
+- `source_iteration_ids`
+- `source_run_ids`
+- `source_artifacts`
+- `lineage`
 - `code_patch_artifact`
 - `created_at`
 
@@ -100,6 +107,13 @@ canonical artifact：
 - `proposal_strategy`
 - `source_run_ids`
 - `source_dataset_versions`
+
+说明：
+
+- `lineage` 是 candidate lineage 的 canonical envelope，用于更稳定地表达 proposal / iteration / run / artifact 来源
+- `parent_candidate_id`、`proposal_id`、`source_proposal_ids`、`iteration_id`、`source_iteration_ids`、`source_run_ids`、`source_artifacts` 仍保留为兼容字段，但应与 `lineage` 保持同步
+- 治理语义采用 `lineage-first`：新增 contract、投影和外部集成优先直接读取 `lineage`，不再以扁平兼容字段作为主接口
+- 面向 catalog / API 的 candidate 投影应优先直接暴露 `lineage`，而不是要求调用方自行从扁平字段重建
 
 ## 3.4 Run
 

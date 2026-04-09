@@ -96,6 +96,7 @@ def create_job_record(
     *,
     reports_root: Path,
     job_type: str,
+    execution_mode: str = "inline",
     job_input: dict[str, Any] | None = None,
     requested_by: str | None = None,
     job_id: str | None = None,
@@ -105,6 +106,7 @@ def create_job_record(
     payload = JobRecord(
         job_id=job_id or uuid4().hex[:12],
         job_type=job_type,
+        execution_mode=execution_mode,
         parent_job_id=parent_job_id,
         attempt=attempt,
         requested_by=requested_by,

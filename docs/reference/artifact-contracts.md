@@ -1,6 +1,6 @@
 # Meta-Harness Artifact Contracts
 
-更新时间：2026-04-08
+更新时间：2026-04-09
 
 ## 1. 目标
 
@@ -47,6 +47,33 @@ candidates/<candidate_id>/
 - `proposal.json` 可选
 - `code.patch` 可选
 - `candidate_fingerprint.txt` 用于去重和幂等
+- `candidate.json` 应承载 candidate 自身的 lineage 元数据；当前保留扁平兼容字段 `parent_candidate_id`、`proposal_id`、`source_proposal_ids`、`iteration_id`、`source_iteration_ids`、`source_run_ids`、`source_artifacts`，并同步输出 canonical `lineage` envelope
+- candidate lineage 的对外治理语义采用 `lineage-first`：调用方、投影层和集成层应优先直接消费 canonical `lineage` envelope，扁平字段只作为兼容层保留
+- `lineage` envelope 当前至少包括 `parent_candidate_id`、`proposal_id`、`source_proposal_ids`、`iteration_id`、`source_iteration_ids`、`source_run_ids`、`source_artifacts`
+- 若 `candidate.json` 显式携带 `lineage`，则其内容必须与同名扁平字段保持一致，不能出现分叉
+- 若 `candidate.json` 携带 `proposal_id` 或 `iteration_id`，则 `source_artifacts` 不应为空
+- 若 `candidate.json` 携带 `proposal_id`，则 `source_proposal_ids` 应显式包含它
+- 若 `candidate.json` 携带 `iteration_id`，则 `source_iteration_ids` 应显式包含它
+- 若 candidate 已知来自某次 loop 选中的 run，`source_run_ids` 应显式保留该 `run_id`
+- `source_proposal_ids`、`source_iteration_ids`、`source_run_ids` 与 `source_artifacts`，以及 `lineage` 内对应列表字段，都应保持去重后的规范化列表
+- 若 `candidate.json` 携带 `proposal_id`，则 `source_artifacts` 还应显式包含 proposal 侧的 `proposal.json` 与 `proposal_evaluation.json` 引用
+- 若 `proposal.json` 中也声明 `proposal_id`，它应与 `candidate.json.proposal_id` 一致
+- 对 loop 物化出的 candidate，`source_artifacts` 应优先包含本轮 iteration 直接产出的工件路径，例如 `proposal_output.json`、`selected_candidate.json`、`next_round_context.json`
+- 同一语义也适用于 `iteration.json`
+- 同一语义也适用于 `proposal_input.json`
+- 同一语义也适用于 `benchmark_summary.json`
+- 同一语义也适用于 `experience_summary.json`
+- 同一语义也适用于 `validation_summary.json`
+- 同一语义也适用于 `proposer_context/`
+- 若 loop validator 能通过 `selected_candidate.json.candidate_path` 解析到 candidate artifact，且 candidate artifact 的 `iteration_id` 与当前 iteration 一致，则其 `source_artifacts` 至少应包含当前 iteration 的 `proposal_output.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `iteration.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `proposal_input.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `selected_candidate.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `next_round_context.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `benchmark_summary.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `experience_summary.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `validation_summary.json`
+- 在同一条件下，`source_artifacts` 也至少应包含当前 iteration 的 `proposer_context/`
 
 兼容规则：
 
@@ -74,6 +101,7 @@ proposals/<proposal_id>/
 
 - `proposal_evaluation.json` 记录 ranking、selection reason、是否被采纳、是否已物化
 - proposal-only 和 materialize-afterwards 共享同一 evaluation artifact
+- loop / iteration 级别的 selection artifact 应保留 `selection_rationale`，用于解释 score、stability、cost 等维度下为何保留当前候选
 
 ## 4. Run Contract
 
@@ -131,6 +159,7 @@ runs/<run_id>/tasks/<task_id>/
 - 每行一个 JSON object
 - 每个 object 至少有 `step_id/phase/status/timestamp`
 - `run_id/task_id` 必须可从事件本身或目录上下文推断
+- 导出为 trace payload 时，若 run 绑定了 candidate 且可解析 candidate artifact，则导出层应优先投影 candidate 的 canonical `lineage`
 
 兼容策略：
 
@@ -258,6 +287,10 @@ reports/exports/integrations/<integration_name>/<run_id>.json
 - artifact 至少包含 `run_id/destination/format/integration`
 - `integration` 至少包含 `status_code/attempt_count/ok/failure_kind/retryable/retry_exhausted/error`
 - job 触发的 integration export，其 `result_ref.path` 应优先指向这份 artifact，而不是瞬时返回值
+- export trace artifact 应直接投影 canonical lineage，至少保留完整 `candidate_lineage` envelope，并提供稳定的扁平字段投影供 OTEL / Phoenix / Langfuse 等下游直接消费
+- 若目标 integration 为 Phoenix，则 phoenix export artifact 还必须保留 `phoenix_api_request`，显式记录 endpoint、project_name、timeout 与 retry 策略
+- 若目标 integration 为 Langfuse，则 langfuse export artifact 还必须保留 `langfuse_api_request`，显式记录 endpoint、trace_id、observation_count、timeout 与 retry 策略
+- 若目标 integration 为 OTLP HTTP，则 export artifact 还必须保留 `otlp_transport_request`，显式记录解析后的 `/v1/traces` endpoint、timeout 与 retry 策略
 
 ## 14. Loop Contract
 
@@ -339,6 +372,9 @@ Smoke 复用约定：
 - `artifacts.benchmark_summary_json` 必须指向当前 iteration 目录下的 `benchmark_summary.json`，可使用相对路径或绝对路径
 - `artifacts.proposer_context` 必须指向当前 iteration 目录下的 `proposer_context/`，可使用相对路径或绝对路径
 - `artifacts.selected_candidate_json` 必须指向当前 iteration 目录下的 `selected_candidate.json`
+- 若 `selected_candidate.json` 携带 `candidate_path`，它必须指向真实 candidate artifact；若 candidate artifact 自带 `iteration_id`，它应与当前 loop iteration 一致
+- `artifacts.proposal_output_json` 必须指向当前 iteration 目录下的 `proposal_output.json`，可使用相对路径或绝对路径
+- 若 `proposal_output.json` 和 selected candidate artifact 都声明 `proposal_id`，两者应保持一致
 - `artifacts.experience_summary_json` 必须指向当前 iteration 目录下的 `experience_summary.json`，可使用相对路径或绝对路径
 - 若存在 `validation_summary.json`，则 `next_round_context.json.artifacts.validation_summary_json` 也必须指向它，可使用相对路径或绝对路径
 ```
@@ -423,6 +459,7 @@ reports/loops/<loop_id>/
 - 若 `benchmark_summary.json.evaluation.benchmark_skipped=true` 或 `executor.status=validation_failed`，则必须同时保留 `evaluation.validation`
 - 若 `validation_summary.json` 非空，则 `benchmark_summary.json.evaluation.validation` 也必须存在
 - `validation_summary.json` 应与 `benchmark_summary.json.evaluation.validation` 保持一致，避免 gate 信息漂移
+- 若 evaluation 经过 `shadow_validation_policy` 决策，则对应 artifact 还必须保留规范化后的 `evaluation.shadow_validation_policy`，至少包含 `enabled`、`trigger`、`failure_behavior`
 
 规则：
 

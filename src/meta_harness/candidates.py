@@ -100,6 +100,113 @@ def _find_existing_candidate_id(candidates_root: Path, fingerprint: str) -> str 
     return None
 
 
+def _normalize_source_artifacts(source_artifacts: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for item in source_artifacts or []:
+        value = str(item).strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _normalize_source_run_ids(source_run_ids: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for item in source_run_ids or []:
+        value = str(item).strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _normalize_source_iteration_ids(source_iteration_ids: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for item in source_iteration_ids or []:
+        value = str(item).strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _normalize_source_proposal_ids(source_proposal_ids: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for item in source_proposal_ids or []:
+        value = str(item).strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _backfill_candidate_lineage(
+    *,
+    candidate_dir: Path,
+    proposal_id: str | None,
+    iteration_id: str | None,
+    source_run_ids: list[str] | None,
+    source_artifacts: list[str] | None,
+) -> None:
+    metadata_path = candidate_dir / "candidate.json"
+    if not metadata_path.exists():
+        return
+    metadata = CandidateMetadata.model_validate_json(
+        metadata_path.read_text(encoding="utf-8")
+    )
+    changed = False
+    if proposal_id and metadata.proposal_id is None:
+        metadata.proposal_id = proposal_id
+        changed = True
+    merged_source_proposal_ids = list(metadata.source_proposal_ids)
+    for item in _normalize_source_proposal_ids([proposal_id] if proposal_id else []):
+        if item not in merged_source_proposal_ids:
+            merged_source_proposal_ids.append(item)
+            changed = True
+    if iteration_id and metadata.iteration_id is None:
+        metadata.iteration_id = iteration_id
+        changed = True
+    merged_source_iteration_ids = list(metadata.source_iteration_ids)
+    for item in _normalize_source_iteration_ids([iteration_id] if iteration_id else []):
+        if item not in merged_source_iteration_ids:
+            merged_source_iteration_ids.append(item)
+            changed = True
+    merged_source_run_ids = list(metadata.source_run_ids)
+    for item in _normalize_source_run_ids(source_run_ids):
+        if item not in merged_source_run_ids:
+            merged_source_run_ids.append(item)
+            changed = True
+    merged_source_artifacts = list(metadata.source_artifacts)
+    for item in _normalize_source_artifacts(source_artifacts):
+        if item not in merged_source_artifacts:
+            merged_source_artifacts.append(item)
+            changed = True
+    if changed:
+        metadata.source_proposal_ids = merged_source_proposal_ids
+        metadata.source_iteration_ids = merged_source_iteration_ids
+        metadata.source_run_ids = merged_source_run_ids
+        metadata.source_artifacts = merged_source_artifacts
+        metadata = CandidateMetadata.model_validate(metadata.model_dump())
+        metadata_path.write_text(
+            metadata.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+
+def backfill_candidate_lineage(
+    *,
+    candidates_root: Path,
+    candidate_id: str,
+    proposal_id: str | None,
+    iteration_id: str | None,
+    source_run_ids: list[str] | None,
+    source_artifacts: list[str] | None,
+) -> None:
+    _backfill_candidate_lineage(
+        candidate_dir=candidates_root / candidate_id,
+        proposal_id=proposal_id,
+        iteration_id=iteration_id,
+        source_run_ids=source_run_ids,
+        source_artifacts=source_artifacts,
+    )
+
+
 def create_candidate(
     candidates_root: Path,
     config_root: Path,
@@ -111,6 +218,10 @@ def create_candidate(
     code_patch_content: str | None = None,
     notes: str = "",
     parent_candidate_id: str | None = None,
+    proposal_id: str | None = None,
+    iteration_id: str | None = None,
+    source_run_ids: list[str] | None = None,
+    source_artifacts: list[str] | None = None,
     proposal: dict[str, Any] | None = None,
     reuse_existing: bool = False,
 ) -> str:
@@ -144,6 +255,13 @@ def create_candidate(
     if reuse_existing:
         existing_candidate_id = _find_existing_candidate_id(candidates_root, fingerprint)
         if existing_candidate_id is not None:
+            _backfill_candidate_lineage(
+                candidate_dir=candidates_root / existing_candidate_id,
+                proposal_id=proposal_id,
+                iteration_id=iteration_id,
+                source_run_ids=source_run_ids,
+                source_artifacts=source_artifacts,
+            )
             return existing_candidate_id
 
     candidate_id = uuid4().hex[:12]
@@ -163,6 +281,16 @@ def create_candidate(
         project=project_name,
         notes=notes,
         parent_candidate_id=parent_candidate_id,
+        proposal_id=proposal_id,
+        source_proposal_ids=_normalize_source_proposal_ids(
+            [proposal_id] if proposal_id else []
+        ),
+        iteration_id=iteration_id,
+        source_iteration_ids=_normalize_source_iteration_ids(
+            [iteration_id] if iteration_id else []
+        ),
+        source_run_ids=_normalize_source_run_ids(source_run_ids),
+        source_artifacts=_normalize_source_artifacts(source_artifacts),
         code_patch_artifact=code_patch_artifact,
     )
 
@@ -187,7 +315,9 @@ def create_candidate(
 
 def load_candidate_record(candidates_root: Path, candidate_id: str) -> dict[str, Any]:
     candidate_dir = (candidates_root / candidate_id).resolve()
-    metadata = _read_json(candidate_dir / "candidate.json")
+    metadata = CandidateMetadata.model_validate_json(
+        (candidate_dir / "candidate.json").read_text(encoding="utf-8")
+    ).model_dump(mode="json")
     effective_config = _read_json(candidate_dir / "effective_config.json")
     proposal = None
     proposal_path = candidate_dir / "proposal.json"

@@ -72,6 +72,7 @@ def make_candidate(
     profile: str = "base",
     project: str = "demo",
     notes: str = "",
+    lineage: dict | None = None,
     proposal: dict | None = None,
 ) -> None:
     candidate_dir = candidates_root / candidate_id
@@ -85,6 +86,7 @@ def make_candidate(
             "notes": notes,
             "parent_candidate_id": None,
             "code_patch_artifact": None,
+            **({"lineage": lineage} if lineage is not None else {}),
         },
     )
     write_json(candidate_dir / "effective_config.json", {"budget": {"max_turns": 12}})
@@ -343,6 +345,27 @@ def test_run_current_and_archive_list_views(tmp_path: Path) -> None:
             "variant": "retrieval_wide_only",
         },
     )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "lineage": {
+                "parent_candidate_id": None,
+                "proposal_id": "proposal-1",
+                "source_proposal_ids": ["proposal-1"],
+                "iteration_id": "iter-1",
+                "source_iteration_ids": ["iter-1"],
+                "source_run_ids": ["run-old"],
+                "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+            },
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
     make_candidate(
         candidates_root,
         "cand-new",
@@ -350,6 +373,18 @@ def test_run_current_and_archive_list_views(tmp_path: Path) -> None:
             "strategy": "benchmark_variant",
             "experiment": "benchmark_combo_validation",
             "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
         },
     )
     write_json(
@@ -512,10 +547,12 @@ def test_candidate_current_and_archive_list_views(tmp_path: Path) -> None:
     assert archive_result.exit_code == 0
     current_payload = json.loads(current_result.stdout)
     archive_payload = json.loads(archive_result.stdout)
-    assert current_payload == {
-        "current_recommended_candidate_by_experiment": {
-            "benchmark_combo_validation": "cand-new"
-        }
+    assert current_payload["current_recommended_candidate_by_experiment"] == {
+        "benchmark_combo_validation": "cand-new"
+    }
+    assert {item["candidate_id"] for item in current_payload["candidates"]} == {
+        "cand-old",
+        "cand-new",
     }
     assert archive_payload["superseded_candidates"] == ["cand-old"]
 
@@ -1018,6 +1055,105 @@ def test_run_archive_writes_manifest_and_cleanup_log(tmp_path: Path) -> None:
     assert len(log_lines) == 1
 
 
+def test_candidate_archive_cleanup_log_keeps_canonical_lineage(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    candidates_root = tmp_path / "candidates"
+    archive_root = tmp_path / "archive"
+
+    make_candidate(
+        candidates_root,
+        "cand-old",
+        lineage={
+            "parent_candidate_id": None,
+            "proposal_id": "proposal-1",
+            "source_proposal_ids": ["proposal-1"],
+            "iteration_id": "iter-1",
+            "source_iteration_ids": ["iter-1"],
+            "source_run_ids": ["run-old"],
+            "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+        },
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "benchmark_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-old" / "candidate.json",
+        {
+            "candidate_id": "cand-old",
+            "profile": "base",
+            "project": "demo",
+            "notes": "",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "lineage": {
+                "parent_candidate_id": None,
+                "proposal_id": "proposal-1",
+                "source_proposal_ids": ["proposal-1"],
+                "iteration_id": "iter-1",
+                "source_iteration_ids": ["iter-1"],
+                "source_run_ids": ["run-old"],
+                "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+            },
+            "created_at": "2026-04-06T09:00:00Z",
+        },
+    )
+    make_candidate(
+        candidates_root,
+        "cand-new",
+        proposal={
+            "strategy": "benchmark_variant",
+            "experiment": "benchmark_combo_validation",
+            "variant": "retrieval_wide_only",
+        },
+    )
+    write_json(
+        candidates_root / "cand-new" / "candidate.json",
+        {
+            "candidate_id": "cand-new",
+            "profile": "base",
+            "project": "demo",
+            "notes": "",
+            "parent_candidate_id": None,
+            "code_patch_artifact": None,
+            "created_at": "2026-04-06T10:00:00Z",
+        },
+    )
+    make_run(runs_root, "run-old", candidate_id="cand-old", composite=1.5, success=True)
+    make_run(runs_root, "run-new", candidate_id="cand-new", composite=2.5, success=True)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "candidate",
+            "archive",
+            "--candidates-root",
+            str(candidates_root),
+            "--runs-root",
+            str(runs_root),
+            "--archive-root",
+            str(archive_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    manifest_path = archive_root / "cleanup_logs" / payload["manifest_id"]
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest_payload["target_records"][0]["lineage"] == {
+        "parent_candidate_id": None,
+        "proposal_id": "proposal-1",
+        "source_proposal_ids": ["proposal-1"],
+        "iteration_id": "iter-1",
+        "source_iteration_ids": ["iter-1"],
+        "source_run_ids": ["run-old"],
+        "source_artifacts": ["reports/loops/loop-1/iteration.json"],
+    }
+
+
 def test_candidate_prune_writes_manifest_and_cleanup_log(tmp_path: Path) -> None:
     runs_root = tmp_path / "runs"
     candidates_root = tmp_path / "candidates"
@@ -1103,6 +1239,15 @@ def test_candidate_prune_writes_manifest_and_cleanup_log(tmp_path: Path) -> None
         {
             "target_id": "cand-old",
             "target_type": "candidate",
+            "lineage": {
+                "parent_candidate_id": None,
+                "proposal_id": None,
+                "source_proposal_ids": [],
+                "iteration_id": None,
+                "source_iteration_ids": [],
+                "source_run_ids": [],
+                "source_artifacts": [],
+            },
             "status": "superseded",
             "experiment": "benchmark_combo_validation",
             "benchmark_family": "combo_validation",

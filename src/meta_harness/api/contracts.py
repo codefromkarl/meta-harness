@@ -13,6 +13,8 @@ class RunScoreRequest(BaseModel):
 class RunExportTraceRequest(BaseModel):
     reports_root: str
     runs_root: str
+    candidates_root: str | None = None
+    workspace_id: str | None = None
     output_path: str | None = None
     format: str = "otel-json"
     destination: str = "download"

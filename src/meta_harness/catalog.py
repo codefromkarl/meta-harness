@@ -7,11 +7,21 @@ from typing import Any
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from meta_harness.schemas import CandidateMetadata
+
 _DEFAULT_CLEANUP_LOG_RETENTION = 10
 
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_candidate_metadata(path: Path) -> dict[str, Any]:
+    payload = _read_json(path)
+    try:
+        return CandidateMetadata.model_validate(payload).model_dump(mode="json")
+    except Exception:
+        return payload
 
 
 def _benchmark_family(experiment: str | None) -> str | None:
@@ -33,7 +43,7 @@ def _load_candidate_lookup(candidates_root: Path | None) -> dict[str, dict[str, 
         metadata_path = candidate_dir / "candidate.json"
         if not metadata_path.exists():
             continue
-        metadata = _read_json(metadata_path)
+        metadata = _read_candidate_metadata(metadata_path)
         proposal_path = candidate_dir / "proposal.json"
         proposal = _read_json(proposal_path) if proposal_path.exists() else None
         lookup[str(metadata.get("candidate_id", candidate_dir.name))] = {
@@ -202,7 +212,7 @@ def build_candidate_index(
         effective_config_path = candidate_dir / "effective_config.json"
         if not metadata_path.exists() or not effective_config_path.exists():
             continue
-        metadata = _read_json(metadata_path)
+        metadata = _read_candidate_metadata(metadata_path)
         proposal_path = candidate_dir / "proposal.json"
         proposal = _read_json(proposal_path) if proposal_path.exists() else None
 
@@ -226,6 +236,7 @@ def build_candidate_index(
                 "project": metadata.get("project"),
                 "notes": metadata.get("notes"),
                 "created_at": metadata.get("created_at"),
+                "lineage": metadata.get("lineage"),
                 "status": status,
                 "tags": tags,
                 "experiment": proposal.get("experiment")
@@ -372,6 +383,7 @@ def candidate_current_view(
 ) -> dict[str, Any]:
     payload = build_candidate_index(candidates_root, runs_root=runs_root)
     return {
+        "candidates": payload.get("candidates", []),
         "current_recommended_candidate_by_experiment": payload.get(
             "current_recommended_candidate_by_experiment", {}
         )
@@ -575,6 +587,7 @@ def archive_candidates(
             {
                 "target_id": candidate_id,
                 "target_type": "candidate",
+                "lineage": item.get("lineage"),
                 "status": item.get("status"),
                 "experiment": item.get("experiment"),
                 "benchmark_family": item.get("benchmark_family"),
@@ -639,6 +652,7 @@ def prune_candidates(
             {
                 "target_id": candidate_id,
                 "target_type": "candidate",
+                "lineage": item.get("lineage"),
                 "status": item.get("status"),
                 "experiment": item.get("experiment"),
                 "benchmark_family": item.get("benchmark_family"),

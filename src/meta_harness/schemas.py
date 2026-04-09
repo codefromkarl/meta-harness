@@ -6,14 +6,91 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+def _normalize_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _string_list(values: list[str] | None) -> list[str]:
+    return [str(item) for item in values or []]
+
+
+class CandidateLineage(BaseModel):
+    parent_candidate_id: str | None = None
+    proposal_id: str | None = None
+    source_proposal_ids: list[str] = Field(default_factory=list)
+    iteration_id: str | None = None
+    source_iteration_ids: list[str] = Field(default_factory=list)
+    source_run_ids: list[str] = Field(default_factory=list)
+    source_artifacts: list[str] = Field(default_factory=list)
+
+
 class CandidateMetadata(BaseModel):
     candidate_id: str
     profile: str
     project: str
     notes: str = ""
     parent_candidate_id: str | None = None
+    proposal_id: str | None = None
+    source_proposal_ids: list[str] = Field(default_factory=list)
+    iteration_id: str | None = None
+    source_iteration_ids: list[str] = Field(default_factory=list)
+    source_run_ids: list[str] = Field(default_factory=list)
+    source_artifacts: list[str] = Field(default_factory=list)
+    lineage: CandidateLineage = Field(default_factory=CandidateLineage)
     code_patch_artifact: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def sync_lineage(self) -> "CandidateMetadata":
+        field_set = self.model_fields_set
+        parent_candidate_id = _normalize_optional_string(self.parent_candidate_id)
+        if parent_candidate_id is None and "lineage" in field_set:
+            parent_candidate_id = _normalize_optional_string(self.lineage.parent_candidate_id)
+
+        proposal_id = _normalize_optional_string(self.proposal_id)
+        if proposal_id is None and "lineage" in field_set:
+            proposal_id = _normalize_optional_string(self.lineage.proposal_id)
+
+        iteration_id = _normalize_optional_string(self.iteration_id)
+        if iteration_id is None and "lineage" in field_set:
+            iteration_id = _normalize_optional_string(self.lineage.iteration_id)
+
+        source_proposal_ids = _string_list(self.source_proposal_ids)
+        if not source_proposal_ids and "source_proposal_ids" not in field_set and "lineage" in field_set:
+            source_proposal_ids = _string_list(self.lineage.source_proposal_ids)
+
+        source_iteration_ids = _string_list(self.source_iteration_ids)
+        if not source_iteration_ids and "source_iteration_ids" not in field_set and "lineage" in field_set:
+            source_iteration_ids = _string_list(self.lineage.source_iteration_ids)
+
+        source_run_ids = _string_list(self.source_run_ids)
+        if not source_run_ids and "source_run_ids" not in field_set and "lineage" in field_set:
+            source_run_ids = _string_list(self.lineage.source_run_ids)
+
+        source_artifacts = _string_list(self.source_artifacts)
+        if not source_artifacts and "source_artifacts" not in field_set and "lineage" in field_set:
+            source_artifacts = _string_list(self.lineage.source_artifacts)
+
+        self.parent_candidate_id = parent_candidate_id
+        self.proposal_id = proposal_id
+        self.source_proposal_ids = source_proposal_ids
+        self.iteration_id = iteration_id
+        self.source_iteration_ids = source_iteration_ids
+        self.source_run_ids = source_run_ids
+        self.source_artifacts = source_artifacts
+        self.lineage = CandidateLineage(
+            parent_candidate_id=parent_candidate_id,
+            proposal_id=proposal_id,
+            source_proposal_ids=source_proposal_ids,
+            iteration_id=iteration_id,
+            source_iteration_ids=source_iteration_ids,
+            source_run_ids=source_run_ids,
+            source_artifacts=source_artifacts,
+        )
+        return self
 
 
 class RunMetadata(BaseModel):
@@ -287,6 +364,7 @@ class JobResultRef(BaseModel):
 class JobRecord(BaseModel):
     job_id: str
     job_type: str
+    execution_mode: Literal["inline", "queued"] = "inline"
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"] = "queued"
     parent_job_id: str | None = None
     attempt: int = 1

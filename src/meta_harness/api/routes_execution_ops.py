@@ -233,6 +233,7 @@ def register_execution_ops_routes(app: FastAPI) -> None:
         return root_api.submit_run_export_trace_job(
             reports_root=Path(request.reports_root),
             runs_root=Path(request.runs_root),
+            candidates_root=Path(request.candidates_root) if request.candidates_root is not None else None,
             run_id=run_id,
             output_path=Path(request.output_path) if request.output_path is not None else None,
             export_format=request.format,

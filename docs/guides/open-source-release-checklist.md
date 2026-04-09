@@ -87,17 +87,17 @@
 ### C1. 外部 Observability
 
 - [ ] OTLP 真正发送路径（当前已有 `otlp_http` 命名集成、timeout/retry HTTP export path，仍缺批量、协议对齐与治理）
-- [ ] Phoenix SDK / API 接入（当前已有 `phoenix-json` export、命名集成 HTTP export 与基础 timeout/retry，仍缺产品化加固）
-- [ ] Langfuse SDK / API 接入（当前已有 `langfuse-json` export、命名集成 HTTP export 与基础 timeout/retry，仍缺产品化加固）
+- [ ] Phoenix SDK / API 接入（当前已具备 `phoenix_api_request` request envelope、artifact 落盘与 service/API 路径测试，仍缺正式 SDK / hosted API 适配）
+- [ ] Langfuse SDK / API 接入（当前已具备 `langfuse_api_request` request envelope、artifact 落盘与 service/API 路径测试，仍缺正式 SDK / hosted API 适配）
 - [x] integration health check
 
 ### C2. 服务化与产品面
 
 - [ ] 完整 API 产品面（当前已具备 runs / datasets / candidates / integrations / loop 等基础 API 与 service surface，但离完整产品面仍有距离）
-- [ ] token auth / workspace 权限（当前仅有 bearer token，尚无 workspace 权限模型）
-- [ ] job queue / worker（当前为单机 inline job + retry surface）
-- [ ] DB projection 与 migration
-- [ ] UI：Runs / Benchmarks / Datasets / Candidates / Gate Policies
+- [ ] token auth / workspace 权限（当前已具备 bearer token + `WorkspaceAuthContext` + workspace header enforcement，仍缺多 workspace / role model）
+- [ ] job queue / worker（当前已具备 `execution_mode=queued|inline` 与最小 `process_pending_jobs()` worker path，仍缺真正后台队列调度）
+- [ ] DB projection 与 migration（当前已具备最小 SQLite projection store 与初始 migration，仍缺主查询链路接入）
+- [ ] UI：Runs / Benchmarks / Datasets / Candidates / Gate Policies（当前已具备 API 内嵌 dashboard shell 与上述核心面板，仍缺更深 drill-down 与独立 frontend）
 
 ## D. 当前已具备、可对外强调的能力
 

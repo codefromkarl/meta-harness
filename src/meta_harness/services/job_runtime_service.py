@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Callable
 
 from meta_harness.services.async_jobs import (
     submit_dataset_extract_job,
@@ -14,7 +15,14 @@ from meta_harness.services.async_jobs import (
     submit_workflow_benchmark_suite_job,
     submit_workflow_run_job,
 )
-from meta_harness.services.job_service import load_job_record, load_job_result_payload
+from meta_harness.services.job_service import (
+    complete_job_record,
+    fail_job_record,
+    list_job_records,
+    load_job_record,
+    load_job_result_payload,
+    start_job_record,
+)
 
 
 def retry_job(
@@ -209,3 +217,78 @@ def load_job_result(
         job_id=job_id,
         repo_root=repo_root,
     )
+
+
+def process_pending_jobs(
+    *,
+    reports_root: Path,
+    worker_handlers: dict[
+        str,
+        Callable[[dict[str, Any]], tuple[dict[str, Any], dict[str, Any] | None] | dict[str, Any]],
+    ],
+) -> dict[str, Any]:
+    processed_jobs: list[dict[str, Any]] = []
+    queued_jobs = [
+        job
+        for job in list_job_records(reports_root=reports_root, status="queued")
+        if job.get("execution_mode") == "queued"
+    ]
+    for job in queued_jobs:
+        job_id = str(job["job_id"])
+        job_type = str(job["job_type"])
+        handler = worker_handlers.get(job_type)
+        if handler is None:
+            processed_jobs.append(
+                {
+                    "job_id": job_id,
+                    "job_type": job_type,
+                    "status": "queued",
+                    "decision": "skipped",
+                }
+            )
+            continue
+
+        start_job_record(reports_root=reports_root, job_id=job_id)
+        try:
+            result = handler(dict(job.get("job_input") or {}))
+            if isinstance(result, tuple):
+                data, result_ref = result
+            else:
+                data, result_ref = result, None
+            completed = complete_job_record(
+                reports_root=reports_root,
+                job_id=job_id,
+                result_ref=result_ref,
+            )
+            processed_jobs.append(
+                {
+                    "job_id": job_id,
+                    "job_type": job_type,
+                    "status": completed["status"],
+                    "decision": "processed",
+                    "data": data,
+                }
+            )
+        except Exception as exc:
+            failed = fail_job_record(
+                reports_root=reports_root,
+                job_id=job_id,
+                error_code="worker_job_failed",
+                message=str(exc),
+                details={"job_type": job_type},
+            )
+            processed_jobs.append(
+                {
+                    "job_id": job_id,
+                    "job_type": job_type,
+                    "status": failed["status"],
+                    "decision": "failed",
+                    "error": str(exc),
+                }
+            )
+    return {
+        "processed_jobs": processed_jobs,
+        "processed_count": sum(1 for item in processed_jobs if item["decision"] == "processed"),
+        "failed_count": sum(1 for item in processed_jobs if item["decision"] == "failed"),
+        "skipped_count": sum(1 for item in processed_jobs if item["decision"] == "skipped"),
+    }
