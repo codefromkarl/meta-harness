@@ -29,7 +29,7 @@ bash scripts/demo_openclaw_websearch_analysis.sh .openclaw-demo-output
 
 关键配置入口：
 
-- profile: [configs/profiles/demo_openclaw.json](/home/yuanzhi/Develop/tools/meta-harness/configs/profiles/demo_openclaw.json)
-- project: [configs/projects/demo_openclaw.json](/home/yuanzhi/Develop/tools/meta-harness/configs/projects/demo_openclaw.json)
-- benchmark: [configs/benchmarks/demo_openclaw_websearch_analysis.json](/home/yuanzhi/Develop/tools/meta-harness/configs/benchmarks/demo_openclaw_websearch_analysis.json)
-- task set: [task_sets/demo/openclaw_websearch_analysis.json](/home/yuanzhi/Develop/tools/meta-harness/task_sets/demo/openclaw_websearch_analysis.json)
+- profile: [`../../configs/profiles/demo_openclaw.json`](../../configs/profiles/demo_openclaw.json)
+- project: [`../../configs/projects/demo_openclaw.json`](../../configs/projects/demo_openclaw.json)
+- benchmark: [`../../configs/benchmarks/demo_openclaw_websearch_analysis.json`](../../configs/benchmarks/demo_openclaw_websearch_analysis.json)
+- task set: [`../../task_sets/demo/openclaw_websearch_analysis.json`](../../task_sets/demo/openclaw_websearch_analysis.json)

@@ -1,6 +1,8 @@
 # Meta-Harness 开源发布 Checklist
 
-更新时间：2026-04-08
+更新时间：2026-04-09
+
+说明：这是维护者侧的发布核对清单，用于逐条对账仓库现状；对外读者应优先阅读 README 和 `docs/README.md`。
 
 本文档面向“将 `meta-harness` 作为基于论文思想实现的工程项目开源”这一目标。
 
@@ -24,7 +26,7 @@
 - [x] 增加复现文档：`docs/guides/reproducibility.md`
 - [x] 同步边界矩阵状态：`archive/docs/boundary-gap-matrix.md`
 - [x] 在 README 中明确哪些能力已稳定、哪些仍是 experimental
-- [x] 增加术语表，统一 `proposal`、`candidate`、`benchmark variant`、`promotion`、`champion`
+- [x] 增加术语说明，统一 `proposal`、`candidate`、`benchmark variant`、`promotion`、`champion`
 
 ### A2. 运行与复现
 
@@ -52,6 +54,7 @@
 
 当前对应资产：
 
+- 术语说明：`README.md` / `README.en.md` 的 `术语` / `Terminology`
 - validator 入口：`src/meta_harness/artifact_contracts.py`
 - 公开 snapshot：`reports/benchmarks/demo_public_budget_headroom.json`
 - 公开 smoke 脚本：`scripts/demo_public_flow.sh`
@@ -118,6 +121,11 @@
 - demo 资产可跑通
 - 私有路径与 license 问题解决
 - dataset lifecycle 与 proposal artifacts 作为主亮点
+
+当前建议：
+
+- 对外首页与首发文案优先强调闭环、artifact contract、dataset/proposal/benchmark
+- `WorkspaceAuthContext`、queued worker、projection store、dashboard shell 仅作为 experimental skeleton 提及，不作为首发主卖点
 
 ### Release 0.2
 

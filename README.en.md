@@ -10,7 +10,7 @@
     <img alt="Status" src="https://img.shields.io/badge/status-experimental-F59E0B">
   </p>
   <p><a href="./README.md">中文</a></p>
-  <p><a href="#30-second-demo">30-Second Demo</a> · <a href="#quick-start">Quick Start</a> · <a href="./docs/research/paper-mapping.md">Paper Mapping</a> · <a href="./docs/guides/reproducibility.md">Reproducibility</a> · <a href="./docs/guides/open-source-release-checklist.md">Release Checklist</a></p>
+  <p><a href="#30-second-demo">30-Second Demo</a> · <a href="#quick-start">Quick Start</a> · <a href="./docs/research/paper-mapping.md">Paper Mapping</a> · <a href="./docs/guides/reproducibility.md">Reproducibility</a> · <a href="./docs/README.md">Docs Index</a></p>
 </div>
 
 ## What It Is
@@ -23,7 +23,7 @@ The repository is an engineering implementation of the paper [Meta-Harness: End-
 
 - It turns workflow optimization from ad hoc judgment into a replayable artifact flow.
 - It already ships a real closed loop: `candidate -> run -> score -> benchmark -> propose -> shadow-run`.
-- It is no longer CLI-only scaffolding: the repo now includes a FastAPI surface, product-facing request envelopes, a minimal queued-worker path, a SQLite projection store, and an embedded dashboard shell.
+- It is more than a CLI scaffold: the repo includes a FastAPI surface, request envelopes, and an evolving product-facing skeleton that can be extended into a reusable platform kernel.
 
 ## Who It Is For
 
@@ -77,7 +77,7 @@ The script also prints `run_id`, `proposal_id`, `materialized_candidate_id`, `lo
 - Dataset lifecycle covering build, annotation ingestion, derive-split, and promotion
 - OTLP / Phoenix / Langfuse request envelopes with integration export artifacts
 - `lineage-first` governance semantics for candidate and loop artifacts
-- Product skeletons for workspace auth context, queued worker path, SQLite projection store, and embedded dashboard shell
+- Experimental product skeletons for workspace auth context, queued worker path, SQLite projection store, and embedded dashboard shell
 
 ## Current Boundaries
 
@@ -157,21 +157,23 @@ Recommended reading order:
 
 1. [Platform Design](./docs/architecture/platform-design.md)
 2. [Data Model v1](./docs/architecture/data-model-v1.md)
-3. [API Surface v1](./docs/architecture/api-surface-v1.md)
-4. [Actual Next Steps](./docs/architecture/actual-next-steps.md)
+3. [Artifact Contracts](./docs/reference/artifact-contracts.md)
+4. [API Surface v1](./docs/architecture/api-surface-v1.md)
+5. [Reproducibility Guide](./docs/guides/reproducibility.md)
+6. [Paper Mapping](./docs/research/paper-mapping.md)
 
 Additional references:
 
 - [Documentation Index](./docs/README.md)
-- [Artifact Contracts](./docs/reference/artifact-contracts.md)
 - [Benchmark Spec v2](./docs/reference/benchmark-spec-v2.md)
 - [Gate Policy v1](./docs/reference/gate-policy-v1.md)
-- [Paper Mapping](./docs/research/paper-mapping.md)
 - [External Strategy Evaluation](./docs/research/external-strategy-evaluation.md)
-- [Reproducibility Guide](./docs/guides/reproducibility.md)
+- [ADR Index](./docs/adr/README.md)
+
+Maintainer references:
+
 - [Open-Source Release Checklist](./docs/guides/open-source-release-checklist.md)
 - [Release Materials Pack](./docs/guides/release-materials-pack.md)
-- [ADR Index](./docs/adr/README.md)
 
 ## Terminology
 

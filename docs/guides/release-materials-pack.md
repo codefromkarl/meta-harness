@@ -1,6 +1,8 @@
-# Meta-Harness 对外发布素材包
+# Meta-Harness 发布素材模板
 
 更新时间：2026-04-09
+
+这是一份仓库维护者使用的发布模板，不是面向首次阅读者的主入口文档。
 
 这份文档把对外发布最常用的三类素材放在一起：
 
@@ -33,7 +35,7 @@ This repository is not a one-off experiment script. It is an artifact-first plat
 - Dataset lifecycle support: build, annotation ingestion, derive-split, and promotion
 - OTLP / Phoenix / Langfuse request envelopes and integration export artifacts
 - `lineage-first` governance semantics for candidate and loop artifacts
-- A minimal product skeleton: workspace auth context, queued worker path, SQLite projection store, and embedded dashboard shell
+- Experimental product-facing surfaces around API, auth context, job execution, projection, and dashboard views
 
 ## Fastest way to try it
 
@@ -87,7 +89,7 @@ It is not yet a fully mature product platform. The following areas remain intent
 
 candidate -> run -> score -> benchmark -> propose -> shadow-run
 
-这个仓库来自论文《Meta-Harness: End-to-End Optimization of Model Harnesses》的工程化实现。我们把论文里的 harness 优化思路落成了一套可运行、可比较、可归档的系统，同时补了 request envelope、lineage-first contract、最小 worker 路径、SQLite projection store 和内嵌 dashboard shell。
+这个仓库来自论文《Meta-Harness: End-to-End Optimization of Model Harnesses》的工程化实现。我们把论文里的 harness 优化思路落成了一套可运行、可比较、可归档的系统，主线聚焦在 artifact contract、dataset/proposal 生命周期和可复现的闭环。
 
 如果只想看它能不能跑，最短路径就是：
 
@@ -101,7 +103,7 @@ bash scripts/demo_public_flow.sh .demo-output
 - 想从论文思路继续往平台内核推进的开发者
 
 仓库地址：
-<repo-url>
+https://github.com/codefromkarl/meta-harness
 ```
 
 ### 2.2 中文短版
@@ -117,7 +119,7 @@ bash scripts/demo_public_flow.sh .demo-output
 
 适合做 Agent / workflow 持续优化、研究工程复现和平台内核扩展。
 
-<repo-url>
+https://github.com/codefromkarl/meta-harness
 ```
 
 ### 2.3 英文短版
@@ -131,9 +133,9 @@ candidate -> run -> score -> benchmark -> propose -> shadow-run
 Fastest demo:
 bash scripts/demo_public_flow.sh .demo-output
 
-Built as an engineering implementation of the Meta-Harness paper, with lineage-first artifacts, request envelopes, a minimal queued worker path, SQLite projection store, and an embedded dashboard shell.
+Built as an engineering implementation of the Meta-Harness paper, with lineage-first artifacts, request envelopes, and a reproducible optimization loop centered on replayable artifacts.
 
-<repo-url>
+https://github.com/codefromkarl/meta-harness
 ```
 
 ## 3. 一页发布清单
@@ -150,7 +152,7 @@ Built as an engineering implementation of the Meta-Harness paper, with lineage-f
 
 - 贴 GitHub Release 文案
 - 贴中文长版或短版社媒文案
-- 补仓库地址 `<repo-url>`
+- 确认仓库地址仍为 `https://github.com/codefromkarl/meta-harness`
 - 如有截图，优先放 dashboard shell 或 demo 输出目录截图
 
 发布后：
@@ -168,9 +170,9 @@ Built as an engineering implementation of the Meta-Harness paper, with lineage-f
 
 如果只准备一张图，优先级建议是：
 
-1. dashboard shell 首页截图
-2. `.demo-output` 目录树截图
-3. README 里的闭环架构图
+1. `.demo-output` 目录树截图
+2. README 里的闭环架构图
+3. dashboard shell 首页截图
 
 如果只准备一句定位，建议直接用：
 

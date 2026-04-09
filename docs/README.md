@@ -1,17 +1,15 @@
 # Documentation Index
 
-当前文档按“现行设计文档”和“历史归档文档”分开维护。
+当前文档按“对外阅读入口”“维护者规划/发布文档”和“历史归档文档”分开维护。
 
-## 当前文档
+## 对外阅读入口
 
 ### Architecture
 
 - [Platform Design](./architecture/platform-design.md)
 - [Data Model v1](./architecture/data-model-v1.md)
 - [API Surface v1](./architecture/api-surface-v1.md)
-- [Actual Next Steps](./architecture/actual-next-steps.md)
 - [Search Loop Blueprint](./architecture/search-loop-blueprint.md)
-- [Paper Architecture Execution Plan](./architecture/paper-architecture-execution-plan.md)
 
 ### Reference
 
@@ -22,8 +20,6 @@
 ### Guides
 
 - [Reproducibility](./guides/reproducibility.md)
-- [Open-Source Release Checklist](./guides/open-source-release-checklist.md)
-- [Release Materials Pack](./guides/release-materials-pack.md)
 
 ### Research
 
@@ -33,6 +29,15 @@
 ### ADR
 
 - [ADR Index](./adr/README.md)
+
+## 维护者规划与发布
+
+以下内容用于维护者对账、发布准备和后续规划，不建议作为首次阅读入口：
+
+- [Actual Next Steps](./architecture/actual-next-steps.md)
+- [Paper Architecture Execution Plan](./architecture/paper-architecture-execution-plan.md)
+- [Open-Source Release Checklist](./guides/open-source-release-checklist.md)
+- [Release Materials Pack](./guides/release-materials-pack.md)
 
 ## 历史归档
 
