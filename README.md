@@ -160,9 +160,16 @@ PYTHONPATH=src python -m meta_harness.cli --help
 - [开源发布 Checklist](./docs/guides/open-source-release-checklist.md)
 - [ADR Index](./docs/adr/README.md)
 
+## 友情链接
+
+- [linux.do](https://linux.do) — 开发者社区
+
+## License
+
+本项目基于 [MIT License](./LICENSE) 开源。
+
 ## 当前状态
 
 - 当前主要执行入口是 CLI
 - 已提供覆盖 workflow、benchmark、integration 和 optimize loop 的 HTTP API / service 层
 - 统一 search loop 主轴已落地，详见 `docs/architecture/search-loop-blueprint.md`
-- 仓库当前采用 `MIT` 许可证，见 `LICENSE`
