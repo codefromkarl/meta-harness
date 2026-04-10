@@ -185,6 +185,10 @@ PYTHONPATH=src python -m meta_harness.cli profile list
 - `promotion`：把数据集或 candidate 标记为更高优先级/默认对象的动作
 - `champion`：当前被提升为默认推荐的 candidate
 
+## 友情链接
+
+- [Linux.do](https://linux.do/) — 开发者与 AI 爱好者的交流社区
+
 ## License
 
 本项目基于 [MIT License](./LICENSE) 开源。
